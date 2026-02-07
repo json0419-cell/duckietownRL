@@ -1,0 +1,33 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="Eslint" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="matplotlib" />
+          <option value="jupyter" />
+          <option value="opencv-python" />
+          <option value="eva-decord" />
+          <option value="Flask" />
+          <option value="Flask-Cors" />
+          <option value="av" />
+          <option value="dataclasses-json" />
+          <option value="gunicorn" />
+          <option value="imagesize" />
+          <option value="pycocotools" />
+          <option value="strawberry-graphql" />
+          <option value="black" />
+          <option value="usort" />
+          <option value="ufmt" />
+          <option value="fvcore" />
+          <option value="pandas" />
+          <option value="scikit-image" />
+          <option value="tensorboard" />
+          <option value="tensordict" />
+          <option value="submitit" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
