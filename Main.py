@@ -15,7 +15,7 @@ from stable_baselines3.common.monitor import Monitor
 from gym_duckiematrix.DB21J import DuckiematrixDB21JEnv
 from reward_wrappers import LaneFollowingRewardWrapper
 from observation_wrappers import ResizeCropWrapper
-from action_wrappers import ThrottleSteerToWheelsWrapper
+from action_wrappers import HeadingToWheelsWrapper
 
 def make_single_env(
     headless: bool = False,
@@ -24,7 +24,8 @@ def make_single_env(
     reward_kwargs: dict = None,
     obs_size: tuple = (80, 160),
     crop_top_ratio: float = 0.33,
-    min_throttle: float = 0.2,
+    forward_speed: float = 0.6,
+    max_steer: float = 1.0,
 ):
     """
     顺序（从里到外）：
@@ -32,7 +33,7 @@ def make_single_env(
       2) RandomRespawnWrapper (在 reset 时设置随机初始位姿)
       3) LaneFollowingRewardWrapper (替换 reward)
       4) ResizeCropWrapper (只改观测)
-      5) ThrottleSteerToWheelsWrapper (只改 action)
+      5) HeadingToWheelsWrapper (单转向动作，速度固定)
     注意：VecTransposeImage/VecFrameStack 在外面处理（针对 VecEnv）
     """
     # 1) 基础 env
@@ -52,8 +53,8 @@ def make_single_env(
     out_h, out_w = obs_size
     env = ResizeCropWrapper(env, out_h=out_h, out_w=out_w, crop_top_ratio=crop_top_ratio)
 
-    # 5) Action reparam: agent 输出 [throttle, steer]
-    env = ThrottleSteerToWheelsWrapper(env, min_throttle=min_throttle)
+    # 5) Action reparam: agent 输出 [heading]，速度固定
+    env = HeadingToWheelsWrapper(env, forward_speed=forward_speed, max_steer=max_steer)
 
     # 6) Optional TimeLimit wrapper around the whole stack
     env = TimeLimit(env, max_episode_steps=max_episode_steps)
@@ -89,6 +90,15 @@ def main():
         "w_smooth": 0.05,
         "center_sigma": 0.10,
         "speed_clip": 5.0,
+        "enforce_right_lane": True,
+        # 必须顺行（朝向与车道切线夹角小于约78°），否则视为逆行
+        "right_lane_min_dot": 0.2,
+        # 车体中心需在车道中心线右侧，但允许 2cm 容差，避免微小浮点误差导致奖励归零
+        "right_lane_min_dist": -0.02,
+        # 曲线额外放宽 5cm，避免切线抖动导致误罚
+        "right_lane_curve_margin": 0.05,
+        # 低于此速度（m/s）不给正奖励，防止停车刷分
+        "min_speed_reward": 0.02,
     }
 
     # create single env factory (for DummyVecEnv)
@@ -100,7 +110,8 @@ def main():
             reward_kwargs=reward_kwargs,
             obs_size=(80, 160),
             crop_top_ratio=0.33,
-            min_throttle=0.2,
+            forward_speed=1.0,
+            max_steer=1.0,
         )
 
     # Vectorized env (single proc). 如果你能并行运行多个模拟，改用 SubprocVecEnv

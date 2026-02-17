@@ -63,6 +63,7 @@ LANE_WIDTH_MARGIN = 0.0
 CURVE_OFFSET_TILES = 0.5
 CURVE_EXTRA_MARGIN = 0.02
 NEIGHBOR_TILE_RADIUS = 1
+HEADING_MIN_DOT = 0.1
 
 
 def _quat_to_rot_matrix(quat):
@@ -184,6 +185,14 @@ def pose_to_lane_frame(pose, lp_cal=None):
         if _drivable_pos(lp_cal, alt_pos) and not _drivable_pos(lp_cal, pos_lane):
             return alt_pos, alt_yaw
     return pos_lane, yaw
+
+
+def yaw_from_displacement(pos, last_pos, min_dist=1e-4):
+    dx = float(pos[0] - last_pos[0])
+    dz = float(pos[2] - last_pos[2])
+    if dx * dx + dz * dz < float(min_dist) * float(min_dist):
+        return None
+    return float(math.atan2(-dz, dx))
 
 
 def _dir_vec(angle):
@@ -389,40 +398,50 @@ def get_lane_pos_by_heading(lp_cal, pos, angle):
     if angle is None:
         return get_lane_pos_by_distance(lp_cal, pos, angle)
 
-    cps = _select_curve_by_heading(curves, angle)
-    if cps is None:
+    dir_vec = _dir_vec(angle)
+    up_vec = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+
+    best = None
+    best_abs = None
+
+    for cps in curves:
+        t = _bezier_closest(cps, pos)
+        point = _bezier_point(cps, t)
+        tangent = _bezier_tangent(cps, t)
+        norm = float(np.linalg.norm(tangent))
+        if norm < 1e-6:
+            continue
+        tangent = tangent / norm
+
+        dot_dir = float(np.clip(np.dot(dir_vec, tangent), -1.0, 1.0))
+        if dot_dir < float(HEADING_MIN_DOT):
+            continue
+
+        right_vec = np.cross(tangent, up_vec)
+        signed_dist = float(np.dot(pos - point, right_vec))
+
+        angle_rad = math.acos(dot_dir)
+        if np.dot(dir_vec, right_vec) < 0:
+            angle_rad *= -1.0
+        angle_deg = float(np.rad2deg(angle_rad))
+
+        abs_dist = abs(signed_dist)
+        if best is None or abs_dist < best_abs:
+            best_abs = abs_dist
+            best = LanePosition(
+                dist=signed_dist,
+                dot_dir=dot_dir,
+                angle_deg=angle_deg,
+                angle_rad=angle_rad,
+            )
+
+    if best is None:
         return get_lane_pos_by_distance(lp_cal, pos, angle)
 
-    t = _bezier_closest(cps, pos)
-    point = _bezier_point(cps, t)
-    tangent = _bezier_tangent(cps, t)
-    norm = float(np.linalg.norm(tangent))
-    if norm < 1e-6:
-        _raise_not_in_lane(f"Point not in lane: {pos}")
-    tangent = tangent / norm
-
-    dir_vec = _dir_vec(angle)
-    dot_dir = float(np.clip(np.dot(dir_vec, tangent), -1.0, 1.0))
-
-    pos_vec = pos - point
-    up_vec = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-    right_vec = np.cross(tangent, up_vec)
-    signed_dist = float(np.dot(pos_vec, right_vec))
-
-    angle_rad = math.acos(dot_dir)
-    if np.dot(dir_vec, right_vec) < 0:
-        angle_rad *= -1.0
-    angle_deg = float(np.rad2deg(angle_rad))
-
-    return LanePosition(
-        dist=signed_dist,
-        dot_dir=dot_dir,
-        angle_deg=angle_deg,
-        angle_rad=angle_rad,
-    )
+    return best
 
 
-def get_lane_pos_by_distance(lp_cal, pos, angle):
+def get_lane_pos_by_distance(lp_cal, pos, angle, keep_sign=False):
     """
     Choose the curve with the smallest lateral distance to the agent.
     """
@@ -462,7 +481,7 @@ def get_lane_pos_by_distance(lp_cal, pos, angle):
             dot_dir = 1.0
         else:
             dot_dir = float(np.clip(np.dot(dir_vec, tangent), -1.0, 1.0))
-            if dot_dir < 0.0:
+            if (not keep_sign) and dot_dir < 0.0:
                 tangent = -tangent
                 dot_dir = -dot_dir
 

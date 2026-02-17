@@ -5,6 +5,7 @@ import pygame
 import lane_utils as lu
 from gym_duckiematrix.DB21J import DuckiematrixDB21JEnv
 from reward_wrappers import LaneFollowingRewardWrapper
+from action_wrappers import HeadingToWheelsWrapper
 from lane_utils import (
     pose_to_lane_frame,
     is_in_lane,
@@ -18,6 +19,8 @@ from lane_utils import (
 )
 
 SHOW_POSE = True
+
+# 与训练保持一致的奖励配置
 LANE_REWARD_KWARGS = {
     "w_forward": 1.0,
     "w_center": 1.0,
@@ -25,47 +28,26 @@ LANE_REWARD_KWARGS = {
     "center_sigma": 0.10,
     "speed_clip": 5.0,
     "enforce_right_lane": True,
-    # 顺行阈值：cos(theta) >= 0.2 约等价于 |theta| <= 78°
     "right_lane_min_dot": 0.2,
-    # 车体中心需在车道中心线右侧，放宽 2cm 容差，避免微小漂移就被判罚
+    # 与 lane_check.py 保持一致：右侧行驶但允许 2cm 容差
     "right_lane_min_dist": -0.02,
     # 曲线额外放宽 5cm，避免切线抖动导致误罚
     "right_lane_curve_margin": 0.05,
-    # 低于此速度（m/s）不给正奖励，防止停车刷分
-    "min_speed_reward": 0.02,
+    "min_speed_reward": 0.0,
 }
 
 
-def keys_to_action(keys, base=0.6, turn=0.35, clip=1.0):
-    forward = keys[pygame.K_w] or keys[pygame.K_UP]
-    back = keys[pygame.K_s] or keys[pygame.K_DOWN]
-    left = keys[pygame.K_a] or keys[pygame.K_LEFT]
-    right = keys[pygame.K_d] or keys[pygame.K_RIGHT]
-    brake = keys[pygame.K_SPACE]
+def keys_to_heading(keys, turn=0.6):
+    """
+    只输出转向信号（-1..1），速度由 HeadingToWheelsWrapper 固定。
+    """
+    heading = 0.0
+    if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+        heading -= turn
+    if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+        heading += turn
+    return np.array([float(np.clip(heading, -1.0, 1.0))], dtype=np.float32)
 
-    wl = 0.0
-    wr = 0.0
-    if forward:
-        wl = base
-        wr = base
-    elif back:
-        wl = -base
-        wr = -base
-
-    if left:
-        wl -= turn
-        wr += turn
-    if right:
-        wl += turn
-        wr -= turn
-
-    if brake:
-        wl = 0.0
-        wr = 0.0
-
-    wl = float(np.clip(wl, -clip, clip))
-    wr = float(np.clip(wr, -clip, clip))
-    return np.array([wl, wr], dtype=np.float32)
 
 def _fmt_pose(pose, yaw):
     x = float(pose["position"]["x"])
@@ -73,50 +55,6 @@ def _fmt_pose(pose, yaw):
     z = float(pose["position"]["z"])
     return f"pose=({x:.3f},{y:.3f},{z:.3f}) yaw={yaw:.3f}"
 
-def _collect_curves(lp_cal, pos):
-    curves = []
-    if lu.NEIGHBOR_TILE_RADIUS > 0:
-        for t in lu._iter_neighbor_tiles(lp_cal, pos):
-            t_curves = t.get("curves")
-            if t_curves is None:
-                continue
-            curves.extend(lu._apply_curve_offset(lp_cal, t_curves))
-    else:
-        i, j = lp_cal.get_grid_coords(pos)
-        tile = lp_cal.map_interpreter.get_tile(i, j)
-        if tile is not None and tile.get("drivable", False):
-            curves = lu._apply_curve_offset(lp_cal, tile.get("curves"))
-    return curves if curves else None
-
-def _closest_curve_point(lp_cal, pos, angle):
-    curves = _collect_curves(lp_cal, pos)
-    if not curves:
-        return None, None
-    cps = lu._select_curve_by_heading(curves, angle) if angle is not None else None
-    if cps is None:
-        best = None
-        best_t = None
-        best_abs = None
-        for cand in curves:
-            t = lu._bezier_closest(cand, pos)
-            point = lu._bezier_point(cand, t)
-            d = float(np.linalg.norm(point - pos))
-            if best is None or d < best_abs:
-                best = cand
-                best_t = t
-                best_abs = d
-        cps = best
-        t = best_t
-    else:
-        t = lu._bezier_closest(cps, pos)
-    if cps is None or t is None:
-        return None, None
-    point = lu._bezier_point(cps, t)
-    tangent = lu._bezier_tangent(cps, t)
-    norm = float(np.linalg.norm(tangent))
-    if norm < 1e-6:
-        return point, None
-    return point, tangent / norm
 
 def main():
     base_env = DuckiematrixDB21JEnv(
@@ -126,7 +64,9 @@ def main():
         camera_height=480,
         camera_width=640,
     )
+    # 先包奖励，再包 heading action
     env = LaneFollowingRewardWrapper(base_env, **LANE_REWARD_KWARGS)
+    env = HeadingToWheelsWrapper(env, forward_speed=1.0, max_steer=1.0)
     env.reset()
     if SHOW_POSE and base_env.last_pose is not None:
         pos0, yaw0 = pose_to_lane_frame(base_env.last_pose, lp_cal=base_env.lp_cal)
@@ -134,10 +74,10 @@ def main():
 
     pygame.init()
     pygame.display.set_mode((420, 120))
-    pygame.display.set_caption(f"Lane test: mode={LANE_CHECK_MODE}")
+    pygame.display.set_caption(f"Lane test (heading): mode={LANE_CHECK_MODE}")
     clock = pygame.time.Clock()
 
-    print("\nControls: WASD/Arrows, SPACE brake, R reset, ESC quit\n")
+    print("\nControls: A/D or ←/→ steer, R reset, ESC quit\n")
     print(f"Lane rule: mode={LANE_CHECK_MODE} -> lane_pos={LANE_POS_METHOD}\n")
 
     step_i = 0
@@ -165,7 +105,7 @@ def main():
                 time.sleep(0.15)
                 continue
 
-            action = keys_to_action(keys)
+            action = keys_to_heading(keys)
             _, reward, terminated, truncated, info = env.step(action)
             dbg = info.get("debug_lane_reward") if isinstance(info, dict) else None
             total_reward += float(reward)
@@ -201,11 +141,7 @@ def main():
             if now - last_print > 0.10:
                 last_print = now
 
-                if dir_dot is not None:
-                    dir_info = f"  dir_dot={dir_dot: .3f}  dir_ok={dir_ok}"
-                else:
-                    dir_info = ""
-
+                dir_info = f"  dir_dot={dir_dot: .3f}  dir_ok={dir_ok}" if dir_dot is not None else ""
 
                 lp = None
                 lp_err = None
@@ -215,11 +151,8 @@ def main():
                     lp_err = e
 
                 if lp is not None:
-                    if LANE_CHECK_MODE == "center":
-                        half = lane_threshold(base_env.lp_cal, pos=pos)
-                        lp_info = f"dist={float(lp.dist): .3f}  half={half: .3f}  dot_dir={float(lp.dot_dir): .3f}"
-                    else:
-                        lp_info = f"dist={float(lp.dist): .3f}  dot_dir={float(lp.dot_dir): .3f}"
+                    half = lane_threshold(base_env.lp_cal, pos=pos)
+                    lp_info = f"dist={float(lp.dist): .3f}  half={half: .3f}  dot_dir={float(lp.dot_dir): .3f}"
                 else:
                     lp_info = f"lp_error={type(lp_err).__name__}"
 
