@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+pyvenv.cfg
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Logs / runtime
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+
+# Duckietown / sims (common artifacts)
+*.mp4
+*.avi
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.npy
+*.npz
+*.pkl
+
+basic_no_random_respawn_single_map
+dt-duckiematrix-image-src
