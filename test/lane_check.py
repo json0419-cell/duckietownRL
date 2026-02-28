@@ -1,6 +1,14 @@
+import os
+import sys
 import time
+
 import numpy as np
 import pygame
+
+# Allow running from the test/ directory without installing the project.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 import lane_utils as lu
 from gym_duckiematrix.DB21J import DuckiematrixDB21JEnv
