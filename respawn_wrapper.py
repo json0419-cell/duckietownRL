@@ -61,7 +61,7 @@ class RandomRespawnWrapper(gym.Wrapper):
         avoid_junction: bool = True,
         fallback_bbox=None,
         max_reset_attempts: int | None = None,
-        max_spawn_angle_deg: float = 60.0,
+        max_spawn_angle_deg: float = 4.0,
     ):
         super().__init__(env)
         self.lateral_jitter = lateral_jitter

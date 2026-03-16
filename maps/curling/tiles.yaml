@@ -1,38 +1,58 @@
 version: 1.0
 tiles:
   map_0/tile_0_0:
-    type: floor
-  map_0/tile_0_1:
     type: curve
+  map_0/tile_0_1:
+    type: straight
   map_0/tile_0_2:
     type: curve
-  map_0/tile_1_0:
+  map_0/tile_0_3:
     type: floor
-  map_0/tile_1_1:
+  map_0/tile_1_0:
     type: straight
+  map_0/tile_1_1:
+    type: floor
   map_0/tile_1_2:
     type: straight
+  map_0/tile_1_3:
+    type: floor
   map_0/tile_2_0:
-    type: curve
-  map_0/tile_2_1:
-    type: curve
-  map_0/tile_2_2:
     type: straight
+  map_0/tile_2_1:
+    type: floor
+  map_0/tile_2_2:
+    type: curve
+  map_0/tile_2_3:
+    type: curve
   map_0/tile_3_0:
-    type: curve
+    type: straight
   map_0/tile_3_1:
-    type: curve
+    type: floor
   map_0/tile_3_2:
+    type: floor
+  map_0/tile_3_3:
     type: straight
   map_0/tile_4_0:
-    type: floor
+    type: straight
   map_0/tile_4_1:
-    type: straight
-  map_0/tile_4_2:
-    type: straight
-  map_0/tile_5_0:
     type: floor
+  map_0/tile_4_2:
+    type: curve
+  map_0/tile_4_3:
+    type: curve
+  map_0/tile_5_0:
+    type: straight
   map_0/tile_5_1:
-    type: curve
+    type: floor
   map_0/tile_5_2:
+    type: straight
+  map_0/tile_5_3:
+    type: floor
+  map_0/tile_6_0:
     type: curve
+  map_0/tile_6_1:
+    type: straight
+  map_0/tile_6_2:
+    type: curve
+  map_0/tile_6_3:
+    type: floor

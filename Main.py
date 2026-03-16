@@ -3,11 +3,15 @@ import os
 import random
 import signal
 import subprocess
+import time
+import urllib.request
 from pathlib import Path
 
+import cbor2
 from gymnasium.wrappers import TimeLimit
 
 from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecTransposeImage
@@ -27,9 +31,68 @@ DEFAULT_SEGMENT_TIMESTEPS = 50_000
 DEFAULT_MAX_EPISODE_STEPS = 800
 
 
+def _read_topic_timestamp(url: str, timeout_s: float = 2.0) -> float | None:
+    try:
+        raw = urllib.request.urlopen(url, timeout=timeout_s).read()
+        msg = cbor2.loads(raw)
+        return float(msg["header"]["timestamp"])
+    except Exception:
+        return None
+
+
+class CameraFreezeCallback(BaseCallback):
+    def __init__(
+        self,
+        *,
+        host: str,
+        port: int,
+        entity_name: str,
+        lag_threshold_s: float,
+        poll_every_steps: int,
+        start_after_steps: int = 256,
+        verbose: int = 0,
+    ):
+        super().__init__(verbose=verbose)
+        self.pose_url = f"http://{host}:{port}/robot/{entity_name}/state/pose/"
+        self.cam_url = f"http://{host}:{port}/robot/{entity_name}/sensor/camera/front_center/jpeg/"
+        self.lag_threshold_s = float(lag_threshold_s)
+        self.poll_every_steps = max(1, int(poll_every_steps))
+        self.start_after_steps = max(0, int(start_after_steps))
+        self.freeze_detected = False
+        self.freeze_reason = ""
+        self.last_pose_ts = None
+        self.last_cam_ts = None
+
+    def _on_step(self) -> bool:
+        if self.n_calls < self.start_after_steps:
+            return True
+        if self.n_calls % self.poll_every_steps != 0:
+            return True
+
+        pose_ts = _read_topic_timestamp(self.pose_url)
+        cam_ts = _read_topic_timestamp(self.cam_url)
+        self.last_pose_ts = pose_ts
+        self.last_cam_ts = cam_ts
+
+        if pose_ts is None or cam_ts is None:
+            self.freeze_detected = True
+            self.freeze_reason = f"camera watchdog read failed: pose_ts={pose_ts} cam_ts={cam_ts}"
+            return False
+
+        lag = float(pose_ts) - float(cam_ts)
+        if lag > self.lag_threshold_s:
+            self.freeze_detected = True
+            self.freeze_reason = (
+                f"camera stream frozen: pose_ts={pose_ts:.3f} cam_ts={cam_ts:.3f} lag={lag:.3f}s "
+                f"threshold={self.lag_threshold_s:.3f}s"
+            )
+            return False
+        return True
+
+
 def make_single_env(
     entity_name: str = "map_0/vehicle_0",
-    headless: bool = False,
+    headless: bool = True,
     max_episode_steps: int = DEFAULT_MAX_EPISODE_STEPS,
     respawn_mode: str = "random",
     respawn_kwargs: dict | None = None,
@@ -147,7 +210,11 @@ def parse_args():
     )
     p.add_argument("--logdir", type=str, default="./runs_db21j_ppo", help="logging/checkpoint dir")
     p.add_argument("--entity-name", type=str, default="map_0/vehicle_0", help="target vehicle entity name")
-    p.add_argument("--headless", action="store_true", help="run env headless")
+    p.add_argument(
+        "--show-figure",
+        action="store_true",
+        help="show the local matplotlib figure window from DB21JEnv (disabled by default)",
+    )
     p.add_argument("--save-name", type=str, default="ppo_db21j_final", help="final model filename")
     p.add_argument("--load-model", type=str, default=None, help="path to existing PPO model .zip to resume training")
     p.add_argument("--device", type=str, default="auto", help="torch device: auto/cpu/cuda")
@@ -167,10 +234,29 @@ def parse_args():
     p.add_argument("--engine-ready-timeout", type=float, default=40.0, help="wait engine readiness timeout")
     p.add_argument("--container-name", type=str, default="dts-matrix-engine", help="engine docker container name")
     p.add_argument(
+        "--graphics-api",
+        type=str,
+        default="opengl",
+        choices=("opengl", "vulkan", "default"),
+        help="renderer graphics API for standalone mode",
+    )
+    p.add_argument(
         "--renderer-process-name",
         type=str,
         default="duckiematrix.x86_64",
         help="process name pattern used to stop the local renderer",
+    )
+    p.add_argument(
+        "--camera-freeze-threshold-s",
+        type=float,
+        default=3.0,
+        help="abort training if pose_ts - camera_ts exceeds this threshold",
+    )
+    p.add_argument(
+        "--camera-watchdog-steps",
+        type=int,
+        default=128,
+        help="poll camera/pose timestamps every N environment steps",
     )
     p.add_argument("--pull", action="store_true", help="allow dts to pull instead of using --no-pull")
     return p.parse_args()
@@ -199,7 +285,7 @@ def main():
         "yaw_jitter_deg": 0.0,
         "fallback_bbox": None,
         "avoid_junction": True,
-        "max_spawn_angle_deg": 60.0,
+        "max_spawn_angle_deg": 4.0,
     }
     reward_kwargs = {
         "reward_mode": "posangle",
@@ -245,81 +331,116 @@ def main():
     try:
         for segment_idx, (map_name, segment_steps) in enumerate(schedule, start=1):
             map_arg = map_engine_arg(args.maps_dir, map_name)
-            print(
-                f"\n[SEGMENT {segment_idx:02d}/{len(schedule)}] "
-                f"map={map_name} engine_map={map_arg} timesteps={segment_steps}"
-            )
+            remaining_steps = int(segment_steps)
+            segment_attempt = 0
 
-            engine_log_path = engine_log_dir / f"segment_{segment_idx:02d}_{map_name}.log"
-            current_engine_log = open(engine_log_path, "w", encoding="utf-8")
+            while remaining_steps > 0:
+                segment_attempt += 1
+                print(
+                    f"\n[SEGMENT {segment_idx:02d}/{len(schedule)}] "
+                    f"attempt={segment_attempt} map={map_name} engine_map={map_arg} remaining_timesteps={remaining_steps}"
+                )
 
-            current_proc, _, _ = start_engine(
-                map_arg,
-                host=args.engine_host,
-                port=args.engine_port,
-                entity_name=args.entity_name,
-                ready_timeout=args.engine_ready_timeout,
-                container_name=args.container_name,
-                renderer_process_name=args.renderer_process_name,
-                no_pull=not args.pull,
-                engine_only=False,
-                env_overrides={"DUCKIEMATRIX_RESPAWN_MODE": args.respawn_mode},
-                stdout=current_engine_log,
-                stderr=subprocess.STDOUT,
-            )
+                engine_log_name = f"segment_{segment_idx:02d}_{map_name}_attempt_{segment_attempt:02d}.log"
+                engine_log_path = engine_log_dir / engine_log_name
+                current_engine_log = open(engine_log_path, "w", encoding="utf-8")
 
-            current_venv = build_vec_env(
-                entity_name=args.entity_name,
-                headless=args.headless,
-                max_episode_steps=args.max_episode_steps,
-                respawn_mode=args.respawn_mode,
-                respawn_kwargs=respawn_kwargs,
-                reward_kwargs=reward_kwargs,
-            )
+                current_proc, _, _ = start_engine(
+                    map_arg,
+                    host=args.engine_host,
+                    port=args.engine_port,
+                    entity_name=args.entity_name,
+                    ready_timeout=args.engine_ready_timeout,
+                    container_name=args.container_name,
+                    renderer_process_name=args.renderer_process_name,
+                    no_pull=not args.pull,
+                    engine_only=False,
+                    graphics_api=args.graphics_api,
+                    env_overrides={
+                        "DUCKIEMATRIX_RESPAWN_MODE": args.respawn_mode,
+                        "DUCKIEMATRIX_RESPAWN_MAX_SPAWN_ANGLE_DEG": str(respawn_kwargs["max_spawn_angle_deg"]),
+                    },
+                    stdout=current_engine_log,
+                    stderr=subprocess.STDOUT,
+                )
 
-            if model is None:
-                if args.load_model:
-                    print(f"[INFO] resuming training from: {args.load_model}")
-                    model = PPO.load(args.load_model, env=current_venv, device=args.device)
+                current_venv = build_vec_env(
+                    entity_name=args.entity_name,
+                    headless=not args.show_figure,
+                    max_episode_steps=args.max_episode_steps,
+                    respawn_mode=args.respawn_mode,
+                    respawn_kwargs=respawn_kwargs,
+                    reward_kwargs=reward_kwargs,
+                )
+
+                if model is None:
+                    if args.load_model:
+                        print(f"[INFO] resuming training from: {args.load_model}")
+                        model = PPO.load(args.load_model, env=current_venv, device=args.device)
+                    else:
+                        model = PPO(
+                            policy="CnnPolicy",
+                            env=current_venv,
+                            verbose=1,
+                            tensorboard_log=str(logdir),
+                            n_steps=2048,
+                            batch_size=64,
+                            n_epochs=10,
+                            gamma=0.99,
+                            gae_lambda=0.95,
+                            learning_rate=3e-4,
+                            clip_range=0.2,
+                            device=args.device,
+                        )
+                    model.set_logger(logger)
                 else:
-                    model = PPO(
-                        policy="CnnPolicy",
-                        env=current_venv,
-                        verbose=1,
-                        tensorboard_log=str(logdir),
-                        n_steps=2048,
-                        batch_size=64,
-                        n_epochs=10,
-                        gamma=0.99,
-                        gae_lambda=0.95,
-                        learning_rate=3e-4,
-                        clip_range=0.2,
-                        device=args.device,
-                    )
-                model.set_logger(logger)
-            else:
-                model.set_env(current_venv, force_reset=True)
+                    model.set_env(current_venv, force_reset=True)
 
-            model.learn(
-                total_timesteps=int(segment_steps),
-                reset_num_timesteps=(segment_idx == 1 and args.load_model is None),
-            )
+                camera_watchdog = CameraFreezeCallback(
+                    host=args.engine_host,
+                    port=args.engine_port,
+                    entity_name=args.entity_name,
+                    lag_threshold_s=args.camera_freeze_threshold_s,
+                    poll_every_steps=args.camera_watchdog_steps,
+                    start_after_steps=max(256, args.camera_watchdog_steps),
+                )
+                before_timesteps = int(model.num_timesteps)
+                model.learn(
+                    total_timesteps=remaining_steps,
+                    reset_num_timesteps=(segment_idx == 1 and segment_attempt == 1 and args.load_model is None),
+                    callback=camera_watchdog,
+                )
+                progressed = int(model.num_timesteps) - before_timesteps
+                remaining_steps = max(0, remaining_steps - max(progressed, 0))
+
+                current_venv.close()
+                current_venv = None
+                stop_engine(
+                    current_proc,
+                    args.container_name,
+                    stop_renderer=True,
+                    renderer_process_name=args.renderer_process_name,
+                )
+                current_proc = None
+                current_engine_log.close()
+                current_engine_log = None
+
+                if camera_watchdog.freeze_detected:
+                    raise RuntimeError(
+                        "Camera freeze detected; aborting training: "
+                        f"{camera_watchdog.freeze_reason}; progressed={progressed}; remaining={remaining_steps}"
+                    )
+
+                break
+
+            if remaining_steps > 0:
+                raise RuntimeError(
+                    f"Segment {segment_idx} on map '{map_name}' ended early with remaining_steps={remaining_steps}."
+                )
 
             segment_save_name = logdir / f"ppo_db21j_seg{segment_idx:02d}_{map_name}"
             model.save(str(segment_save_name))
             print(f"[INFO] saved segment model: {segment_save_name}.zip")
-
-            current_venv.close()
-            current_venv = None
-            stop_engine(
-                current_proc,
-                args.container_name,
-                stop_renderer=True,
-                renderer_process_name=args.renderer_process_name,
-            )
-            current_proc = None
-            current_engine_log.close()
-            current_engine_log = None
 
         final_path = logdir / args.save_name
         model.save(str(final_path))

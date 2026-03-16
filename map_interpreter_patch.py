@@ -9,30 +9,17 @@ DEFAULT_CAPTURE_TIMEOUT_S = 1.0
 
 
 def _patched_get_pose_blocking(self, timeout_s: float = DEFAULT_CAPTURE_TIMEOUT_S):
-    pose = self.robot.pose.capture(block=False)
+    pose = self.robot.pose.capture(block=True, timeout=timeout_s)
     if pose is None:
-        pose = getattr(self.robot.pose, "latest", None)
-    if pose is None:
-        pose = self.robot.pose.capture(block=True, timeout=timeout_s)
-    if pose is None:
-        pose = getattr(self, "last_pose", None)
-    if pose is None:
-        raise RuntimeError("Pose stream stalled: no pose available after timeout.")
+        raise RuntimeError("Pose stream stalled: no fresh pose available after timeout.")
     return pose
 
 
 def _patched_get_rgb_frame_blocking(self, timeout_s: float = DEFAULT_CAPTURE_TIMEOUT_S):
-    bgr = self.robot.camera.capture(block=False)
+    bgr = self.robot.camera.capture(block=True, timeout=timeout_s)
     if bgr is None:
-        bgr = getattr(self.robot.camera, "latest", None)
-    if bgr is None:
-        bgr = self.robot.camera.capture(block=True, timeout=timeout_s)
-    if bgr is None:
-        bgr = getattr(self, "_last_bgr_frame", None)
-    if bgr is None:
-        raise RuntimeError("Camera stream stalled: no RGB frame available after timeout.")
-    self._last_bgr_frame = np.asarray(bgr, dtype=np.uint8)
-    rgb = self._last_bgr_frame[:, :, [2, 1, 0]]
+        raise RuntimeError("Camera stream stalled: no fresh RGB frame available after timeout.")
+    rgb = np.asarray(bgr, dtype=np.uint8)[:, :, [2, 1, 0]]
     return rgb
 
 

@@ -28,7 +28,7 @@ RESPAWN_KWARGS = {
     "yaw_jitter_deg": 0.0,
     "avoid_junction": True,
     "fallback_bbox": None,
-    "max_spawn_angle_deg": 60.0,
+    "max_spawn_angle_deg": 4.0,
 }
 
 

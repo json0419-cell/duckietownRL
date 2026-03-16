@@ -145,11 +145,16 @@ def build_engine_cmd(
     *,
     no_pull: bool = True,
     engine_only: bool = False,
+    graphics_api: str = "opengl",
 ) -> list[str]:
     if engine_only:
         cmd = ["dts", "matrix", "engine", "run", "--map", map_name]
     else:
         cmd = ["dts", "matrix", "run", "--standalone", "--map", map_name, "--no-tutorial"]
+        if graphics_api == "opengl":
+            cmd.append("--force-opengl")
+        elif graphics_api == "vulkan":
+            cmd.append("--force-vulkan")
 
     if no_pull:
         cmd.append("--no-pull")
@@ -167,6 +172,7 @@ def start_engine(
     renderer_process_name: str = "duckiematrix.x86_64",
     no_pull: bool = True,
     engine_only: bool = False,
+    graphics_api: str = "opengl",
     env_overrides: Optional[dict[str, str]] = None,
     stdout=None,
     stderr=None,
@@ -175,6 +181,7 @@ def start_engine(
         map_name,
         no_pull=no_pull,
         engine_only=engine_only,
+        graphics_api=graphics_api,
     )
 
     print("[INFO] starting engine:", " ".join(cmd))
@@ -235,6 +242,13 @@ def main() -> int:
     )
     parser.add_argument("--pull", action="store_true", help="allow dts to pull instead of using --no-pull")
     parser.add_argument(
+        "--graphics-api",
+        type=str,
+        default="opengl",
+        choices=("opengl", "vulkan", "default"),
+        help="renderer graphics API for standalone mode",
+    )
+    parser.add_argument(
         "--engine-only",
         action="store_true",
         help="start engine only (`dts matrix engine run`); default is standalone (`dts matrix run --standalone`)",
@@ -252,6 +266,7 @@ def main() -> int:
             renderer_process_name=args.renderer_process_name,
             no_pull=not args.pull,
             engine_only=args.engine_only,
+            graphics_api=args.graphics_api,
         )
     except RuntimeError as e:
         print(f"[ERROR] {e}")
