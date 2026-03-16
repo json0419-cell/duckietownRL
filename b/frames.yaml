@@ -288,9 +288,7 @@ frames:
       z: 0.0
       roll: 0.0
       pitch: 0.0
-      yaw: 0.0
-  map_0/tile_5_3:
-    relative_to: ~
+      yaw: 0.011565
     unit: tiles
     pose:
       x: 5.0

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Train PPO across multiple maps by restarting Duckiematrix per segment.
+Switch maps by segment and restart the training workflow for each segment.
 
 Workflow per segment:
-  1) Stop old engine/renderer processes.
-  2) Start Duckiematrix in standalone mode on target map (engine + renderer).
-  4) Run Main.py for N timesteps (resume from previous segment model).
-  5) Save model and continue with next map.
+  1) Stop engine and renderer processes left by the previous segment.
+  2) Start a fresh runtime on the target map.
+  3) Run Main.py for the current segment budget.
+  4) Save the model and continue to the next segment.
 """
 
 from __future__ import annotations
@@ -107,9 +107,9 @@ def stop_duckiematrix(
             proc.wait(timeout=5)
 
     stop_renderer_processes(renderer_process_name)
-    # optional external viewer container
+    # Remove the external viewer container.
     run_quiet(["docker", "rm", "-f", "my-viewer"])
-    # engine container created by dts
+    # Remove the engine container created by the launcher.
     run_quiet(["docker", "rm", "-f", container_name])
 
 
@@ -164,6 +164,13 @@ def main() -> int:
     parser.add_argument("--save-freq", type=int, default=200000, help="checkpoint frequency passed to Main.py")
     parser.add_argument("--device", type=str, default="auto", help="device passed to Main.py")
     parser.add_argument("--headless", action="store_true", help="pass --headless to Main.py")
+    parser.add_argument(
+        "--respawn-mode",
+        type=str,
+        default="random",
+        choices=["random", "fixed"],
+        help="shared respawn mode for the training wrapper and the patched engine image",
+    )
     args = parser.parse_args()
 
     maps = parse_csv(args.maps)
@@ -222,11 +229,14 @@ def main() -> int:
                 "--no-pull",
             ]
             print("[INFO] starting duckiematrix:", " ".join(matrix_cmd))
+            matrix_env = os.environ.copy()
+            matrix_env["DUCKIEMATRIX_RESPAWN_MODE"] = args.respawn_mode
             matrix_proc = subprocess.Popen(
                 matrix_cmd,
                 stdout=matrix_log,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
+                env=matrix_env,
             )
             wait_url_nonempty(pose_url, args.engine_wait_timeout, "engine pose")
             wait_url_nonempty(cam_url, args.camera_wait_timeout, "camera stream")
@@ -247,6 +257,8 @@ def main() -> int:
                 save_name,
                 "--device",
                 args.device,
+                "--respawn-mode",
+                args.respawn_mode,
             ]
             if args.headless:
                 train_cmd.append("--headless")

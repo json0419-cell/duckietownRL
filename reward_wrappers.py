@@ -1,16 +1,15 @@
 import gymnasium as gym
 import numpy as np
-from typing import Tuple, Dict, Optional
+from typing import Dict, Tuple
 
 import lane_utils as lu
-from lane_utils import pose_to_lane_frame, is_in_lane, get_lane_pos, yaw_from_displacement
+from lane_utils import get_lane_pos, pose_to_lane_frame
+
 
 def _find_unwrapped(env):
     e = env
-    # unwrap through common attributes
     seen = set()
     while True:
-        # 防止死循环
         eid = id(e)
         if eid in seen:
             break
@@ -19,7 +18,6 @@ def _find_unwrapped(env):
         if hasattr(e, "env") and getattr(e, "env") is not None:
             e = e.env
             continue
-        # some wrappers expose .unwrapped
         if hasattr(e, "unwrapped"):
             try:
                 e = e.unwrapped
@@ -29,243 +27,234 @@ def _find_unwrapped(env):
         break
     return e
 
+
 class LaneFollowingRewardWrapper(gym.Wrapper):
-    """
-    Reward wrapper for Duckiematrix DB21J:
-    - uses lane_utils.get_lane_pos
-    - replaces env reward with lane-following reward
-    - optional right-lane enforcement (right-hand traffic)
-    """
 
     def __init__(
         self,
         env: gym.Env,
-        w_forward: float = 1.0,
-        w_center: float = 1.0,
-        w_smooth: float = 0.05,
-        center_sigma: float = 0.10,
-        speed_clip: float = 5.0,
-        use_vel_yaw: bool = True,
-        vel_yaw_min_dist: float = 1e-4,
-        enforce_right_lane: bool = False,
-        right_lane_min_dot: float = 0.0,
-        right_lane_margin: float = 0.0,
-        right_lane_min_dist: Optional[float] = None,
-        right_lane_penalty: Optional[float] = None,
-        min_speed_reward: float = 0.0,
-        right_lane_curve_margin: float = 0.05,
+        reward_mode: str = "posangle",
+        include_velocity_reward: bool = True,
+        include_collision_avoidance: bool = True,
+        max_lp_dist: float = 0.05,
+        max_dev_from_target_angle_deg_narrow: float = 10.0,
+        max_dev_from_target_angle_deg_wide: float = 50.0,
+        target_angle_deg_at_edge: float = 45.0,
+        orientation_scale: float = 0.5,
+        velocity_reward_scale: float = 0.25,
+        **legacy_kwargs,
     ):
         super().__init__(env)
 
-        self.w_forward = w_forward
-        self.w_center = w_center
-        self.w_smooth = w_smooth
-        self.center_sigma = center_sigma
-        self.speed_clip = speed_clip
-        self.use_vel_yaw = use_vel_yaw
-        self.vel_yaw_min_dist = vel_yaw_min_dist
-        self.enforce_right_lane = enforce_right_lane
-        self.right_lane_min_dot = right_lane_min_dot
-        self.right_lane_margin = right_lane_margin
-        self.right_lane_min_dist = right_lane_min_dist
-        self.right_lane_penalty = right_lane_penalty
-        self.min_speed_reward = min_speed_reward
-        self.right_lane_curve_margin = right_lane_curve_margin
+        self.reward_mode = str(reward_mode)
+        self.include_velocity_reward = bool(include_velocity_reward)
+        self.include_collision_avoidance = bool(include_collision_avoidance)
+        self.max_lp_dist = float(max_lp_dist)
+        self.max_dev_from_target_angle_deg_narrow = float(max_dev_from_target_angle_deg_narrow)
+        self.max_dev_from_target_angle_deg_wide = float(max_dev_from_target_angle_deg_wide)
+        self.target_angle_deg_at_edge = float(target_angle_deg_at_edge)
+        self.orientation_scale = float(orientation_scale)
+        self.velocity_reward_scale = float(velocity_reward_scale)
+        self.legacy_kwargs = dict(legacy_kwargs)
 
         self.last_pose = None
         self.last_actions = np.array([0.0, 0.0], dtype=np.float32)
         self.last_speed = 0.0
         self.last_lp = None
+        self.prev_proximity_penalty = 0.0
+        self.orientation_reward = 0.0
+        self.velocity_reward = 0.0
+        self.collision_avoidance_reward = 0.0
 
     def reset(self, **kwargs):
-        # 调用底层 reset（可能会被 RandomRespawnWrapper 覆盖 pose）
         obs, info = self.env.reset(**kwargs)
 
-        # 稳健读取最底层 env 的 last_pose
         base = _find_unwrapped(self.env)
         self.last_pose = getattr(base, "last_pose", None)
-
-        # 其它初始化
         self.last_actions = np.array([0.0, 0.0], dtype=np.float32)
         self.last_speed = 0.0
         self.last_lp = None
-
+        self.prev_proximity_penalty = 0.0
+        self.orientation_reward = 0.0
+        self.velocity_reward = 0.0
+        self.collision_avoidance_reward = 0.0
         return obs, info
 
     def step(self, action) -> Tuple:
         self.last_actions = np.asarray(action, dtype=np.float32).copy()
 
-        obs, _, terminated, truncated, info = self.env.step(action)
+        obs, base_reward, terminated, truncated, info = self.env.step(action)
 
-        pose = self.env.last_pose
-        reward, terminated2, dbg = self._lane_reward(pose)
+        base = _find_unwrapped(self.env)
+        pose = getattr(base, "last_pose", None)
+        reward, dbg = self._duckietown_rl_reward(base, pose, float(base_reward), bool(terminated))
 
-        terminated = terminated or terminated2
-
-        # 把 debug 信息塞进 info（不影响 env）
         info = dict(info)
         info["speed"] = self.last_speed
-        if self.last_lp is not None:
-            info["lp_dist"] = float(self.last_lp.dist)
-            info["lp_dot_dir"] = float(self.last_lp.dot_dir)
-        else:
-            info["lp_dist"] = None
-            info["lp_dot_dir"] = None
+        info["lp_dist"] = float(self.last_lp.dist) if self.last_lp is not None else None
+        info["lp_dot_dir"] = float(self.last_lp.dot_dir) if self.last_lp is not None else None
         info["debug_lane_reward"] = dbg
 
-        return obs, reward, terminated, truncated, info
+        return obs, float(reward), terminated, truncated, info
 
-    def _lane_reward(self, pose: Dict) -> Tuple[float, bool, Dict]:
-        assert self.last_pose is not None
+    @staticmethod
+    def _leaky_cosine(x: float) -> float:
+        slope = 0.05
+        if abs(x) < np.pi:
+            return float(np.cos(x))
+        return float(-1.0 - slope * (abs(x) - np.pi))
 
-        terminated = False
-        last_pose = self.last_pose
+    def _calculate_pos_angle_reward(self, lp_dist: float, lp_angle_deg: float) -> Tuple[float, float, float]:
+        normed_lp_dist = float(lp_dist) / self.max_lp_dist
+        clipped_dist = float(np.clip(normed_lp_dist, -1.0, 1.0))
+        target_angle_deg = -clipped_dist * self.target_angle_deg_at_edge
+        narrow = 0.5 + 0.5 * self._leaky_cosine(
+            np.pi * (target_angle_deg - float(lp_angle_deg)) / self.max_dev_from_target_angle_deg_narrow
+        )
+        wide = 0.5 + 0.5 * self._leaky_cosine(
+            np.pi * (target_angle_deg - float(lp_angle_deg)) / self.max_dev_from_target_angle_deg_wide
+        )
+        return float(narrow), float(wide), float(target_angle_deg)
+
+    def _wheel_velocity_reward(self, base_env) -> float:
+        if not self.include_velocity_reward:
+            return 0.0
+
+        wheel_vels = getattr(base_env, "wheelVels", None)
+        if wheel_vels is None:
+            wheel_vels = self.last_actions
+
+        vel_reward = float(np.max(np.asarray(wheel_vels, dtype=np.float32))) * self.velocity_reward_scale
+        if np.isnan(vel_reward):
+            vel_reward = 0.0
+        return float(vel_reward)
+
+    def _collision_reward(self, base_env) -> Tuple[float, bool]:
+        if not self.include_collision_avoidance:
+            return 0.0, False
+
+        has_proximity = (
+            hasattr(base_env, "proximity_penalty2")
+            and hasattr(base_env, "cur_pos")
+            and hasattr(base_env, "cur_angle")
+        )
+        if not has_proximity:
+            return 0.0, False
+
+        proximity_penalty = float(base_env.proximity_penalty2(base_env.cur_pos, base_env.cur_angle))
+        proximity_reward = -(self.prev_proximity_penalty - proximity_penalty) * 50.0
+        if proximity_reward < 0.0:
+            proximity_reward = 0.0
+        self.prev_proximity_penalty = proximity_penalty
+        return float(proximity_reward), True
+
+    def _duckietown_rl_reward(self, base_env, pose: Dict, base_reward: float, terminated: bool) -> Tuple[float, Dict]:
         dbg = {
+            "reward_mode": self.reward_mode,
+            "terminated_from_env": bool(terminated),
             "speed": None,
-            "yaw_use": None,
-            "yaw_dir": None,
+            "pose_valid": None,
+            "invalid_points": [],
+            "first_invalid_point": None,
             "dist_signed": None,
-            "dist_abs": None,
-            "half": None,
             "dot_dir": None,
-            "min_dot": float(self.right_lane_min_dot),
-            "min_dist": self.right_lane_min_dist,
-            "min_dist_eff": None,
+            "half": None,
+            "min_dot": None,
+            "min_dist": None,
             "violated": False,
-            "reasons": [],
-            "r_forward": None,
-            "r_center": None,
-            "r_smooth": None,
+            "lp_dist": None,
+            "lp_dot_dir": None,
+            "lp_angle_deg": None,
+            "target_angle_deg": None,
+            "orientation_reward": 0.0,
+            "velocity_reward": 0.0,
+            "collision_avoidance_reward": 0.0,
+            "collision_reward_available": False,
+            "base_reward": float(base_reward),
             "reward": None,
-            "tile_kind": None,
+            "reasons": [],
+            "legacy_kwargs_ignored": sorted(self.legacy_kwargs.keys()),
         }
 
+        if pose is None or self.last_pose is None:
+            dbg["reasons"].append("missing_pose")
+            dbg["reward"] = float(base_reward)
+            return float(base_reward), dbg
+
         t = float(pose["header"]["timestamp"])
-        last_t = float(last_pose["header"]["timestamp"])
+        last_t = float(self.last_pose["header"]["timestamp"])
         dt = max(t - last_t, 1e-3)
 
-        x, y, z = pose["position"]["x"], pose["position"]["y"], pose["position"]["z"]
-        lx, ly, lz = last_pose["position"]["x"], last_pose["position"]["y"], last_pose["position"]["z"]
+        x = float(pose["position"]["x"])
+        y = float(pose["position"]["y"])
+        z = float(pose["position"]["z"])
+        lx = float(self.last_pose["position"]["x"])
+        ly = float(self.last_pose["position"]["y"])
+        lz = float(self.last_pose["position"]["z"])
+        speed = np.sqrt((x - lx) ** 2 + (y - ly) ** 2 + (z - lz) ** 2) / dt
+        self.last_speed = float(speed)
+        dbg["speed"] = self.last_speed
 
-        dx, dy, dz = x - lx, y - ly, z - lz
-        speed = np.sqrt(dx*dx + dy*dy + dz*dz) / dt
-        speed = float(np.clip(speed, 0.0, self.speed_clip))
-        self.last_speed = speed
-        dbg["speed"] = speed
+        lp_cal = base_env.lp_cal
+        pos_lane, yaw_pose = pose_to_lane_frame(pose, lp_cal=lp_cal)
+        pose_report = lu.valid_pose_report(lp_cal, pos_lane, float(yaw_pose))
+        dbg["pose_valid"] = bool(pose_report["valid"])
+        dbg["invalid_points"] = list(pose_report["invalid_points"])
+        dbg["first_invalid_point"] = pose_report["first_invalid_point"]
 
-        pos_lane, yaw_pose = pose_to_lane_frame(pose, lp_cal=self.env.lp_cal)
-        yaw_use = float(yaw_pose)
-        dbg["yaw_use"] = yaw_use
-        yaw_vel = None
-        if self.use_vel_yaw:
-            last_pos_lane, _ = pose_to_lane_frame(last_pose, lp_cal=self.env.lp_cal)
-            yaw_vel = yaw_from_displacement(
-                pos_lane,
-                last_pos_lane,
-                min_dist=self.vel_yaw_min_dist,
-            )
-            if lu.LANE_POS_METHOD == "heading" and yaw_vel is not None:
-                yaw_use = yaw_vel
-        dbg["yaw_dir"] = yaw_use
+        reward = float(base_reward)
+        orientation_reward = 0.0
 
-        if self.enforce_right_lane:
+        if self.reward_mode in ("posangle", "Posangle", "target_orientation"):
             try:
-                # 侧向距离用保符号版本，方向余弦用对齐版本
-                lp_signed = lu.get_lane_pos_by_distance(
-                    self.env.lp_cal, pos_lane, float(yaw_use), keep_sign=True
-                )
-                lp_dir = lu.get_lane_pos_by_distance(
-                    self.env.lp_cal, pos_lane, float(yaw_use), keep_sign=False
-                )
-                dist_val = float(lp_signed.dist)
-                dbg["dist_signed"] = dist_val
-                dbg["dist_abs"] = abs(dist_val)
-                dbg["dot_dir"] = float(lp_dir.dot_dir)
-
-                half = lu.lane_threshold(self.env.lp_cal, pos=pos_lane)
-                half = max(0.0, float(half) - float(self.right_lane_margin))
-                dbg["half"] = half
-
-                # 曲线处放宽 min_dist：往外侧行驶不罚，避免切线符号抖动
-                effective_min_dist = self.right_lane_min_dist
-                try:
-                    i, j = self.env.lp_cal.get_grid_coords(pos_lane)
-                    tile = self.env.lp_cal.map_interpreter.get_tile(i, j)
-                    tile_kind = tile.get("kind") if tile else None
-                    dbg["tile_kind"] = tile_kind
-                    if effective_min_dist is not None and tile_kind == "curve":
-                        effective_min_dist -= float(self.right_lane_curve_margin)
-                except Exception:
-                    pass
-                dbg["min_dist_eff"] = effective_min_dist
-
-                if (
-                    abs(dist_val) > half
-                    or float(lp_dir.dot_dir) < float(self.right_lane_min_dot)
-                    or (
-                        effective_min_dist is not None
-                        and dist_val < float(effective_min_dist)
-                    )
-                ):
-                    dbg["violated"] = True
-                    dbg["reasons"].append("right_lane")
-                    penalty = self.right_lane_penalty
-                    if penalty is None:
-                        penalty = 0.0
-                    self.last_lp = lp_dir
-                    self.last_pose = pose
-                    dbg["reward"] = float(penalty)
-                    return float(penalty), False, dbg
-            except Exception as e:
-                dbg["reasons"].append(f"right_lane_error:{e}")
-
-        if not is_in_lane(self.env.lp_cal, pos_lane, float(yaw_use)):
-            reward = float(self.env.out_of_road_penalty)
-            terminated = True
-            self.last_lp = None
-            dbg["reasons"].append("out_of_lane")
-            dbg["reward"] = float(reward)
-            return float(reward), terminated, dbg
-        else:
-            try:
-                lp = get_lane_pos(
-                    self.env.lp_cal,
-                    pos_lane,
-                    float(yaw_use),
-                )
+                lp = get_lane_pos(lp_cal, pos_lane, float(yaw_pose))
                 self.last_lp = lp
+                dbg["lp_dist"] = float(lp.dist)
+                dbg["lp_dot_dir"] = float(lp.dot_dir)
+                dbg["lp_angle_deg"] = float(lp.angle_deg)
+                dbg["dist_signed"] = float(lp.dist)
+                dbg["dot_dir"] = float(lp.dot_dir)
 
-                # 静止时不给正向奖励（但仍可被罚）
-                if speed < float(self.min_speed_reward):
-                    reward = 0.0
-                    self.last_pose = pose
-                    dbg["reasons"].append("min_speed")
-                    dbg["reward"] = float(reward)
-                    return float(reward), terminated, dbg
+                narrow, wide, target_angle_deg = self._calculate_pos_angle_reward(lp.dist, lp.angle_deg)
+                dbg["target_angle_deg"] = float(target_angle_deg)
 
-                r_forward = speed * float(lp.dot_dir)
-                d = float(lp.dist)
-                r_center = np.exp(-(d * d) / (self.center_sigma ** 2))
-
-                wl, wr = self.last_actions
-                r_smooth = -abs(wl - wr)
-
-                dbg["r_forward"] = r_forward
-                dbg["r_center"] = r_center
-                dbg["r_smooth"] = r_smooth
-
-                reward = (
-                    self.w_forward * r_forward
-                    + self.w_center * r_center
-                    + self.w_smooth * r_smooth
-                )
-
+                if self.reward_mode == "target_orientation":
+                    orientation_reward = narrow
+                else:
+                    orientation_reward = self.orientation_scale * (narrow + wide)
             except Exception:
-                reward = float(self.env.out_of_road_penalty)
-                terminated = True
                 self.last_lp = None
-                dbg["reasons"].append("lp_error")
+                orientation_reward = -10.0
+                dbg["reasons"].append("not_in_lane")
+
+            reward = float(orientation_reward)
+        elif self.reward_mode == "default":
+            try:
+                lp = get_lane_pos(lp_cal, pos_lane, float(yaw_pose))
+                self.last_lp = lp
+                dbg["lp_dist"] = float(lp.dist)
+                dbg["lp_dot_dir"] = float(lp.dot_dir)
+                dbg["lp_angle_deg"] = float(lp.angle_deg)
+            except Exception:
+                self.last_lp = None
+                dbg["reasons"].append("not_in_lane")
+        else:
+            dbg["reasons"].append(f"unknown_reward_mode:{self.reward_mode}")
+
+        velocity_reward = self._wheel_velocity_reward(base_env)
+        collision_reward, collision_available = self._collision_reward(base_env)
+
+        self.orientation_reward = float(orientation_reward)
+        self.velocity_reward = float(velocity_reward)
+        self.collision_avoidance_reward = float(collision_reward)
+
+        dbg["orientation_reward"] = self.orientation_reward
+        dbg["velocity_reward"] = self.velocity_reward
+        dbg["collision_avoidance_reward"] = self.collision_avoidance_reward
+        dbg["collision_reward_available"] = bool(collision_available)
+
+        reward = float(reward + velocity_reward + collision_reward)
+        dbg["reward"] = float(reward)
 
         self.last_pose = pose
-        dbg["reward"] = float(reward)
-        return float(reward), terminated, dbg
+        return float(reward), dbg

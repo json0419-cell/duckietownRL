@@ -6,19 +6,59 @@ import subprocess
 import sys
 import time
 import urllib.request
+from typing import Iterable, Optional
+
+
+def _read_url(url: str, timeout_s: float = 2.0) -> bytes | None:
+    try:
+        return urllib.request.urlopen(url, timeout=timeout_s).read()
+    except Exception:
+        return None
 
 
 def wait_url_nonempty(url: str, timeout_s: float) -> bool:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        try:
-            raw = urllib.request.urlopen(url, timeout=2.0).read()
-            if raw:
-                return True
-        except Exception:
-            pass
+        raw = _read_url(url)
+        if raw:
+            return True
         time.sleep(0.5)
     return False
+
+
+def wait_url_changing(url: str, timeout_s: float, *, min_changes: int = 1) -> bool:
+    deadline = time.time() + timeout_s
+    previous = None
+    changes = 0
+    while time.time() < deadline:
+        raw = _read_url(url)
+        if raw:
+            if previous is not None and raw != previous:
+                changes += 1
+                if changes >= min_changes:
+                    return True
+            previous = raw
+        time.sleep(0.5)
+    return False
+
+
+def wait_standalone_ready(pose_url: str, cam_url: str, timeout_s: float) -> tuple[bool, str]:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        remaining = max(0.0, deadline - time.time())
+        if not wait_url_nonempty(pose_url, min(remaining, 5.0)):
+            continue
+        remaining = max(0.0, deadline - time.time())
+        if remaining <= 0.0:
+            break
+        if not wait_url_nonempty(cam_url, min(remaining, 5.0)):
+            continue
+        remaining = max(0.0, deadline - time.time())
+        if remaining <= 0.0:
+            break
+        if wait_url_changing(cam_url, min(remaining, 10.0), min_changes=1):
+            return True, "camera stream is updating"
+    return False, "camera stream is not updating"
 
 
 def _pids_from_pattern(pattern: str) -> list[int]:
@@ -47,7 +87,7 @@ def _kill_pids(pids: list[int], sig: int) -> None:
 
 
 def stop_renderer_processes(renderer_process_name: str) -> None:
-    # Common names for Duckiematrix Unity renderer on Linux.
+    # Include common local renderer process names so cleanup is more reliable.
     patterns = [
         renderer_process_name,
         "duckiematrix.x86_64",
@@ -69,7 +109,7 @@ def stop_engine(
     renderer_process_name: str,
 ) -> None:
     if proc is not None and proc.poll() is None:
-        # Stop dts + children as a process group when possible.
+        # Stop the launcher and its children as a process group when possible.
         try:
             os.killpg(proc.pid, signal.SIGTERM)
         except Exception:
@@ -84,20 +124,99 @@ def stop_engine(
             proc.wait(timeout=5)
     if stop_renderer:
         stop_renderer_processes(renderer_process_name)
-        # optional renderer container if user started it manually
+        # Remove the optional viewer container if it was started manually.
         subprocess.run(
             ["docker", "rm", "-f", "my-viewer"],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-    # extra cleanup: if dts left docker container running
+    # Remove any leftover engine container as a final cleanup step.
     subprocess.run(
         ["docker", "rm", "-f", container_name],
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+
+def build_engine_cmd(
+    map_name: str,
+    *,
+    no_pull: bool = True,
+    engine_only: bool = False,
+) -> list[str]:
+    if engine_only:
+        cmd = ["dts", "matrix", "engine", "run", "--map", map_name]
+    else:
+        cmd = ["dts", "matrix", "run", "--standalone", "--map", map_name, "--no-tutorial"]
+
+    if no_pull:
+        cmd.append("--no-pull")
+    return cmd
+
+
+def start_engine(
+    map_name: str,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 7501,
+    entity_name: str = "map_0/vehicle_0",
+    ready_timeout: float = 40.0,
+    container_name: str = "dts-matrix-engine",
+    renderer_process_name: str = "duckiematrix.x86_64",
+    no_pull: bool = True,
+    engine_only: bool = False,
+    env_overrides: Optional[dict[str, str]] = None,
+    stdout=None,
+    stderr=None,
+) -> tuple[subprocess.Popen, list[str], str]:
+    cmd = build_engine_cmd(
+        map_name,
+        no_pull=no_pull,
+        engine_only=engine_only,
+    )
+
+    print("[INFO] starting engine:", " ".join(cmd))
+    try:
+        env = os.environ.copy()
+        if env_overrides:
+            env.update(env_overrides)
+        proc = subprocess.Popen(
+            cmd,
+            start_new_session=True,
+            env=env,
+            stdout=stdout,
+            stderr=stderr,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError("`dts` command not found in PATH") from e
+
+    pose_url = f"http://{host}:{port}/robot/{entity_name}/state/pose/"
+    cam_url = f"http://{host}:{port}/robot/{entity_name}/sensor/camera/front_center/jpeg/"
+    ready_url = pose_url if engine_only else cam_url
+    ready_label = "engine pose" if engine_only else "camera stream"
+
+    if engine_only:
+        ready = wait_url_nonempty(ready_url, ready_timeout)
+        ready_reason = "pose stream is reachable"
+    else:
+        ready, ready_reason = wait_standalone_ready(pose_url, cam_url, ready_timeout)
+    if not ready:
+        stop_engine(
+            proc,
+            container_name,
+            stop_renderer=not engine_only,
+            renderer_process_name=renderer_process_name,
+        )
+        raise RuntimeError(f"{ready_label} not ready within {ready_timeout:.1f}s: {ready_url} ({ready_reason})")
+
+    if engine_only:
+        print(f"[INFO] engine ready: {pose_url} ({ready_reason})")
+    else:
+        print(f"[INFO] standalone ready: {cam_url} ({ready_reason})")
+
+    return proc, cmd, ready_url
 
 
 def main() -> int:
@@ -114,8 +233,7 @@ def main() -> int:
         default="duckiematrix.x86_64",
         help="process name pattern for local renderer cleanup",
     )
-    parser.add_argument("--no-pull", action="store_true", help="pass --no-pull to dts")
-    parser.add_argument("--embedded", action="store_true", help="pass --embedded to dts")
+    parser.add_argument("--pull", action="store_true", help="allow dts to pull instead of using --no-pull")
     parser.add_argument(
         "--engine-only",
         action="store_true",
@@ -123,46 +241,21 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if args.engine_only:
-        cmd = ["dts", "matrix", "engine", "run", "--map", args.map]
-        if args.embedded:
-            cmd.append("--embedded")
-        if args.no_pull:
-            cmd.append("--no-pull")
-    else:
-        cmd = ["dts", "matrix", "run", "--standalone", "--map", args.map, "--no-tutorial"]
-        if args.embedded:
-            cmd.append("--embedded")
-        if args.no_pull:
-            cmd.append("--no-pull")
-
-    print("[INFO] starting engine:", " ".join(cmd))
     try:
-        # New session => we can terminate whole process group reliably.
-        proc = subprocess.Popen(cmd, start_new_session=True)
-    except FileNotFoundError:
-        print("[ERROR] `dts` command not found in PATH")
-        return 1
-
-    pose_url = f"http://{args.host}:{args.port}/robot/{args.entity_name}/state/pose/"
-    cam_url = f"http://{args.host}:{args.port}/robot/{args.entity_name}/sensor/camera/front_center/jpeg/"
-    ready_url = pose_url if args.engine_only else cam_url
-    ready_label = "engine pose" if args.engine_only else "camera stream"
-    ready = wait_url_nonempty(ready_url, args.ready_timeout)
-    if not ready:
-        print(f"[ERROR] {ready_label} not ready within {args.ready_timeout:.1f}s: {ready_url}")
-        stop_engine(
-            proc,
-            args.container_name,
-            stop_renderer=not args.engine_only,
+        proc, _, _ = start_engine(
+            args.map,
+            host=args.host,
+            port=args.port,
+            entity_name=args.entity_name,
+            ready_timeout=args.ready_timeout,
+            container_name=args.container_name,
             renderer_process_name=args.renderer_process_name,
+            no_pull=not args.pull,
+            engine_only=args.engine_only,
         )
-        return 2
-
-    if args.engine_only:
-        print(f"[INFO] engine ready: {pose_url}")
-    else:
-        print(f"[INFO] standalone ready (camera ok): {cam_url}")
+    except RuntimeError as e:
+        print(f"[ERROR] {e}")
+        return 1
     try:
         if args.duration > 0:
             print(f"[INFO] running for {args.duration:.1f}s ...")

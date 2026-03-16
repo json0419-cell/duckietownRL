@@ -1,45 +1,44 @@
-# train_ppo_db21j_full.py
-import os
 import argparse
-import numpy as np
+import os
+import random
+import signal
+import subprocess
+from pathlib import Path
 
-import gymnasium as gym
 from gymnasium.wrappers import TimeLimit
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecTransposeImage
-from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecTransposeImage
 
-# your modules (ensure these files exist as discussed)
 from gym_duckiematrix.DB21J import DuckiematrixDB21JEnv
-from reward_wrappers import LaneFollowingRewardWrapper
-from observation_wrappers import ResizeCropWrapper
+
 from action_wrappers import HeadingToWheelsWrapper
-from respawn_wrapper import RandomRespawnWrapper
+from map_interpreter_patch import use_patched_map_interpreter
+from observation_wrappers import ResizeCropWrapper
+from respawn_wrapper import VALID_RESPAWN_MODES, maybe_wrap_respawn
+from reward_wrappers import LaneFollowingRewardWrapper
+from start_stop_engine import start_engine, stop_engine
+
+
+DEFAULT_TOTAL_TIMESTEPS = 1_500_000
+DEFAULT_SEGMENT_TIMESTEPS = 50_000
+DEFAULT_MAX_EPISODE_STEPS = 800
+
 
 def make_single_env(
     entity_name: str = "map_0/vehicle_0",
     headless: bool = False,
-    max_episode_steps: int = 500,
-    respawn_kwargs: dict = None,
-    reward_kwargs: dict = None,
-    obs_size: tuple = (80, 160),
+    max_episode_steps: int = DEFAULT_MAX_EPISODE_STEPS,
+    respawn_mode: str = "random",
+    respawn_kwargs: dict | None = None,
+    reward_kwargs: dict | None = None,
+    obs_size: tuple[int, int] = (80, 160),
     crop_top_ratio: float = 0.33,
-    forward_speed: float = 0.6,
+    forward_speed: float = 1.0,
     max_steer: float = 1.0,
 ):
-    """
-    顺序（从里到外）：
-      1) 基础 env (DuckiematrixDB21JLaneFollowEnv)
-      2) RandomRespawnWrapper (在 reset 时设置随机初始位姿)
-      3) LaneFollowingRewardWrapper (替换 reward)
-      4) ResizeCropWrapper (只改观测)
-      5) HeadingToWheelsWrapper (单转向动作，速度固定)
-    注意：VecTransposeImage/VecFrameStack 在外面处理（针对 VecEnv）
-    """
-    # 1) 基础 env
     env = DuckiematrixDB21JEnv(
         entity_name=entity_name,
         out_of_road_penalty=-10.0,
@@ -47,79 +46,40 @@ def make_single_env(
         camera_height=480,
         camera_width=640,
     )
+    use_patched_map_interpreter(env)
 
-    # 2) 随机重生（如可用）
-    if respawn_kwargs is None:
-        respawn_kwargs = {}
-    env = RandomRespawnWrapper(env, **respawn_kwargs)
+    env = maybe_wrap_respawn(
+        env,
+        respawn_mode=respawn_mode,
+        respawn_kwargs=respawn_kwargs,
+    )
 
-    # 3) Reward wrapper (替换 reward)
     reward_kwargs = reward_kwargs or {}
     env = LaneFollowingRewardWrapper(env, **reward_kwargs)
 
-    # 4) Observation preprocessing (crop + resize)
     out_h, out_w = obs_size
     env = ResizeCropWrapper(env, out_h=out_h, out_w=out_w, crop_top_ratio=crop_top_ratio)
-
-    # 5) Action reparam: agent 输出 [heading]，速度固定
     env = HeadingToWheelsWrapper(env, forward_speed=forward_speed, max_steer=max_steer)
-
-    # 6) Optional TimeLimit wrapper around the whole stack
     env = TimeLimit(env, max_episode_steps=max_episode_steps)
     env = Monitor(env)
     return env
 
 
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument("--timesteps", type=int, default=2_000_000, help="total timesteps to train")
-    p.add_argument("--logdir", type=str, default="./runs_db21j_ppo", help="logging/checkpoint dir")
-    p.add_argument("--entity-name", type=str, default="map_0/vehicle_0", help="target vehicle entity name")
-    p.add_argument("--headless", action="store_true", help="run headless (default False)")
-    p.add_argument("--num_envs", type=int, default=1, help="parallel envs (use 1 for DummyVecEnv)")
-    p.add_argument("--save-freq", type=int, default=200_000, help="checkpoint frequency (timesteps)")
-    p.add_argument("--save-name", type=str, default="ppo_db21j_final", help="final model filename")
-    p.add_argument("--load-model", type=str, default=None, help="path to existing PPO model .zip to resume training")
-    p.add_argument("--device", type=str, default="auto", help="torch device: auto/cpu/cuda")
-    return p.parse_args()
-
-
-def main():
-    args = parse_args()
-    total_timesteps = args.timesteps
-    logdir = args.logdir
-    os.makedirs(logdir, exist_ok=True)
-
-    # wrappers hyperparams (可按需调整)
-    respawn_kwargs = {
-        "lateral_jitter": 0.02,    # 2 cm
-        "yaw_jitter_deg": 8.0,
-        "fallback_bbox": None,
-        "avoid_junction": True,
-    }
-    reward_kwargs = {
-        "w_forward": 1.0,
-        "w_center": 1.0,
-        "w_smooth": 0.05,
-        "center_sigma": 0.10,
-        "speed_clip": 5.0,
-        "enforce_right_lane": True,
-        # 必须顺行（朝向与车道切线夹角小于约78°），否则视为逆行
-        "right_lane_min_dot": 0.2,
-        # 车体中心需在车道中心线右侧，但允许 2cm 容差，避免微小浮点误差导致奖励归零
-        "right_lane_min_dist": -0.02,
-        # 曲线额外放宽 5cm，避免切线抖动导致误罚
-        "right_lane_curve_margin": 0.05,
-        # 低于此速度（m/s）不给正奖励，防止停车刷分
-        "min_speed_reward": 0.02,
-    }
-
-    # create single env factory (for DummyVecEnv)
-    def _env_factory():
+def build_vec_env(
+    *,
+    entity_name: str,
+    headless: bool,
+    max_episode_steps: int,
+    respawn_mode: str,
+    respawn_kwargs: dict,
+    reward_kwargs: dict,
+):
+    def _factory():
         return make_single_env(
-            entity_name=args.entity_name,
-            headless=args.headless,
-            max_episode_steps=500,
+            entity_name=entity_name,
+            headless=headless,
+            max_episode_steps=max_episode_steps,
+            respawn_mode=respawn_mode,
             respawn_kwargs=respawn_kwargs,
             reward_kwargs=reward_kwargs,
             obs_size=(80, 160),
@@ -128,57 +88,244 @@ def main():
             max_steer=1.0,
         )
 
-    # Vectorized env (single proc). 如果你能并行运行多个模拟，改用 SubprocVecEnv
-    venv = DummyVecEnv([_env_factory for _ in range(max(1, args.num_envs))])
-
-    # SB3 的 CNN policy 要求 CHW 格式，所以先转置
+    venv = DummyVecEnv([_factory])
     venv = VecTransposeImage(venv)
-
-    # stack frames: 给策略 temporal 信息 (n_stack=3 为 Duckietown-RL 的常见设置)
     venv = VecFrameStack(venv, n_stack=3)
+    return venv
 
-    # checkpoint callback
-    checkpoint_cb = CheckpointCallback(
-        save_freq=args.save_freq,
-        save_path=logdir,
-        name_prefix="ppo_db21j",
+
+def discover_maps(maps_root: Path) -> list[str]:
+    maps = []
+    for child in sorted(maps_root.iterdir()):
+        if child.is_dir() and (child / "main.yaml").exists():
+            maps.append(child.name)
+    if not maps:
+        raise RuntimeError(f"No maps found under {maps_root}")
+    return maps
+
+
+def map_engine_arg(maps_dir_arg: str, map_name: str) -> str:
+    return str(Path(maps_dir_arg) / map_name)
+
+
+def build_schedule(
+    available_maps: list[str],
+    total_timesteps: int,
+    segment_timesteps: int,
+    *,
+    first_map: str,
+    rng: random.Random,
+) -> list[tuple[str, int]]:
+    if first_map not in available_maps:
+        raise RuntimeError(f"Required first map '{first_map}' not found in maps directory.")
+    if total_timesteps <= 0 or segment_timesteps <= 0:
+        raise ValueError("total_timesteps and segment_timesteps must be positive.")
+
+    schedule: list[tuple[str, int]] = []
+    remaining = int(total_timesteps)
+    segment_idx = 0
+    while remaining > 0:
+        steps = min(int(segment_timesteps), remaining)
+        if segment_idx == 0:
+            map_name = first_map
+        else:
+            map_name = rng.choice(available_maps)
+        schedule.append((map_name, steps))
+        remaining -= steps
+        segment_idx += 1
+    return schedule
+
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--timesteps", type=int, default=DEFAULT_TOTAL_TIMESTEPS, help="total timesteps to train")
+    p.add_argument(
+        "--segment-timesteps",
+        type=int,
+        default=DEFAULT_SEGMENT_TIMESTEPS,
+        help="timesteps to train on one map before restarting the engine",
+    )
+    p.add_argument("--logdir", type=str, default="./runs_db21j_ppo", help="logging/checkpoint dir")
+    p.add_argument("--entity-name", type=str, default="map_0/vehicle_0", help="target vehicle entity name")
+    p.add_argument("--headless", action="store_true", help="run env headless")
+    p.add_argument("--save-name", type=str, default="ppo_db21j_final", help="final model filename")
+    p.add_argument("--load-model", type=str, default=None, help="path to existing PPO model .zip to resume training")
+    p.add_argument("--device", type=str, default="auto", help="torch device: auto/cpu/cuda")
+    p.add_argument(
+        "--respawn-mode",
+        type=str,
+        default="random",
+        choices=VALID_RESPAWN_MODES,
+        help="respawn mode shared by the training wrapper and the engine patch",
+    )
+    p.add_argument("--maps-dir", type=str, default="./maps", help="local maps directory")
+    p.add_argument("--first-map", type=str, default="loop", help="map used for the first training segment")
+    p.add_argument("--seed", type=int, default=1234, help="random seed for map selection")
+    p.add_argument("--max-episode-steps", type=int, default=DEFAULT_MAX_EPISODE_STEPS, help="TimeLimit wrapper")
+    p.add_argument("--engine-host", type=str, default="127.0.0.1", help="engine host")
+    p.add_argument("--engine-port", type=int, default=7501, help="engine DTPS port")
+    p.add_argument("--engine-ready-timeout", type=float, default=40.0, help="wait engine readiness timeout")
+    p.add_argument("--container-name", type=str, default="dts-matrix-engine", help="engine docker container name")
+    p.add_argument(
+        "--renderer-process-name",
+        type=str,
+        default="duckiematrix.x86_64",
+        help="process name pattern used to stop the local renderer",
+    )
+    p.add_argument("--pull", action="store_true", help="allow dts to pull instead of using --no-pull")
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+    logdir = Path(args.logdir).resolve()
+    logdir.mkdir(parents=True, exist_ok=True)
+    engine_log_dir = logdir / "engine_logs"
+    engine_log_dir.mkdir(parents=True, exist_ok=True)
+
+    maps_root = Path(args.maps_dir).resolve()
+    available_maps = discover_maps(maps_root)
+    rng = random.Random(args.seed)
+    schedule = build_schedule(
+        available_maps,
+        args.timesteps,
+        args.segment_timesteps,
+        first_map=args.first_map,
+        rng=rng,
     )
 
-    # PPO agent
-    if args.load_model:
-        print(f"[INFO] Resuming training from: {args.load_model}")
-        model = PPO.load(args.load_model, env=venv, device=args.device)
-    else:
-        model = PPO(
-            policy="CnnPolicy",
-            env=venv,
-            verbose=1,
-            tensorboard_log=logdir,
-            n_steps=2048,
-            batch_size=64,
-            n_epochs=10,
-            gamma=0.99,
-            gae_lambda=0.95,
-            learning_rate=3e-4,
-            clip_range=0.2,
-            device=args.device,
-        )
-    # 记录到 stdout / CSV / TensorBoard，便于后续出图
-    new_logger = configure(logdir, ["stdout", "csv", "tensorboard"])
-    model.set_logger(new_logger)
+    respawn_kwargs = {
+        "lateral_jitter": 0.02,
+        "yaw_jitter_deg": 0.0,
+        "fallback_bbox": None,
+        "avoid_junction": True,
+        "max_spawn_angle_deg": 60.0,
+    }
+    reward_kwargs = {
+        "reward_mode": "posangle",
+        "include_velocity_reward": True,
+        "include_collision_avoidance": True,
+    }
 
-    # start training
-    model.learn(
-        total_timesteps=total_timesteps,
-        callback=checkpoint_cb,
-        reset_num_timesteps=(args.load_model is None),
-    )
+    print(f"[INFO] discovered maps: {available_maps}")
+    print(f"[INFO] training schedule segments={len(schedule)} first={schedule[0][0]} segment_steps={args.segment_timesteps}")
 
-    # final save
-    final_path = os.path.join(logdir, args.save_name)
-    model.save(final_path)
-    saved_file = final_path if final_path.endswith(".zip") else f"{final_path}.zip"
-    print("Training finished. Model saved to:", saved_file)
+    model = None
+    logger = configure(str(logdir), ["stdout", "csv", "tensorboard"])
+    current_proc = None
+    current_venv = None
+    current_engine_log = None
+
+    def _cleanup(*_):
+        nonlocal current_proc, current_venv, current_engine_log
+        if current_venv is not None:
+            try:
+                current_venv.close()
+            except Exception:
+                pass
+            current_venv = None
+        if current_proc is not None:
+            stop_engine(
+                current_proc,
+                args.container_name,
+                stop_renderer=True,
+                renderer_process_name=args.renderer_process_name,
+            )
+            current_proc = None
+        if current_engine_log is not None:
+            try:
+                current_engine_log.close()
+            except Exception:
+                pass
+            current_engine_log = None
+
+    signal.signal(signal.SIGINT, _cleanup)
+    signal.signal(signal.SIGTERM, _cleanup)
+
+    try:
+        for segment_idx, (map_name, segment_steps) in enumerate(schedule, start=1):
+            map_arg = map_engine_arg(args.maps_dir, map_name)
+            print(
+                f"\n[SEGMENT {segment_idx:02d}/{len(schedule)}] "
+                f"map={map_name} engine_map={map_arg} timesteps={segment_steps}"
+            )
+
+            engine_log_path = engine_log_dir / f"segment_{segment_idx:02d}_{map_name}.log"
+            current_engine_log = open(engine_log_path, "w", encoding="utf-8")
+
+            current_proc, _, _ = start_engine(
+                map_arg,
+                host=args.engine_host,
+                port=args.engine_port,
+                entity_name=args.entity_name,
+                ready_timeout=args.engine_ready_timeout,
+                container_name=args.container_name,
+                renderer_process_name=args.renderer_process_name,
+                no_pull=not args.pull,
+                engine_only=False,
+                env_overrides={"DUCKIEMATRIX_RESPAWN_MODE": args.respawn_mode},
+                stdout=current_engine_log,
+                stderr=subprocess.STDOUT,
+            )
+
+            current_venv = build_vec_env(
+                entity_name=args.entity_name,
+                headless=args.headless,
+                max_episode_steps=args.max_episode_steps,
+                respawn_mode=args.respawn_mode,
+                respawn_kwargs=respawn_kwargs,
+                reward_kwargs=reward_kwargs,
+            )
+
+            if model is None:
+                if args.load_model:
+                    print(f"[INFO] resuming training from: {args.load_model}")
+                    model = PPO.load(args.load_model, env=current_venv, device=args.device)
+                else:
+                    model = PPO(
+                        policy="CnnPolicy",
+                        env=current_venv,
+                        verbose=1,
+                        tensorboard_log=str(logdir),
+                        n_steps=2048,
+                        batch_size=64,
+                        n_epochs=10,
+                        gamma=0.99,
+                        gae_lambda=0.95,
+                        learning_rate=3e-4,
+                        clip_range=0.2,
+                        device=args.device,
+                    )
+                model.set_logger(logger)
+            else:
+                model.set_env(current_venv, force_reset=True)
+
+            model.learn(
+                total_timesteps=int(segment_steps),
+                reset_num_timesteps=(segment_idx == 1 and args.load_model is None),
+            )
+
+            segment_save_name = logdir / f"ppo_db21j_seg{segment_idx:02d}_{map_name}"
+            model.save(str(segment_save_name))
+            print(f"[INFO] saved segment model: {segment_save_name}.zip")
+
+            current_venv.close()
+            current_venv = None
+            stop_engine(
+                current_proc,
+                args.container_name,
+                stop_renderer=True,
+                renderer_process_name=args.renderer_process_name,
+            )
+            current_proc = None
+            current_engine_log.close()
+            current_engine_log = None
+
+        final_path = logdir / args.save_name
+        model.save(str(final_path))
+        print(f"\n[DONE] final model saved to: {final_path}.zip")
+    finally:
+        _cleanup()
 
 
 if __name__ == "__main__":

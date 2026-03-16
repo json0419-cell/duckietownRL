@@ -11,6 +11,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import lane_utils as lu
+from map_interpreter_patch import use_patched_map_interpreter
 from gym_duckiematrix.DB21J import DuckiematrixDB21JEnv
 from reward_wrappers import LaneFollowingRewardWrapper
 from lane_utils import (
@@ -27,20 +28,9 @@ from lane_utils import (
 
 SHOW_POSE = True
 LANE_REWARD_KWARGS = {
-    "w_forward": 1.0,
-    "w_center": 1.0,
-    "w_smooth": 0.05,
-    "center_sigma": 0.10,
-    "speed_clip": 5.0,
-    "enforce_right_lane": True,
-    # 顺行阈值：cos(theta) >= 0.2 约等价于 |theta| <= 78°
-    "right_lane_min_dot": 0.2,
-    # 车体中心需在车道中心线右侧，放宽 2cm 容差，避免微小漂移就被判罚
-    "right_lane_min_dist": -0.02,
-    # 曲线额外放宽 5cm，避免切线抖动导致误罚
-    "right_lane_curve_margin": 0.05,
-    # 低于此速度（m/s）不给正奖励，防止停车刷分
-    "min_speed_reward": 0.02,
+    "reward_mode": "posangle",
+    "include_velocity_reward": True,
+    "include_collision_avoidance": True,
 }
 
 
@@ -91,7 +81,7 @@ def _collect_curves(lp_cal, pos):
                 continue
             curves.extend(lu._apply_curve_offset(lp_cal, t_curves))
     else:
-        i, j = lp_cal.get_grid_coords(pos)
+        (i, j), _, _ = lu.tile_info(lp_cal, pos)
         tile = lp_cal.map_interpreter.get_tile(i, j)
         if tile is not None and tile.get("drivable", False):
             curves = lu._apply_curve_offset(lp_cal, tile.get("curves"))
@@ -135,6 +125,7 @@ def main():
         camera_height=480,
         camera_width=640,
     )
+    use_patched_map_interpreter(base_env)
     env = LaneFollowingRewardWrapper(base_env, **LANE_REWARD_KWARGS)
     env.reset()
     if SHOW_POSE and base_env.last_pose is not None:
@@ -236,10 +227,11 @@ def main():
                 if dbg is not None:
                     reasons = ",".join(dbg.get("reasons", []))
                     dbg_info = (
-                        f"  DBG(speed={dbg.get('speed')!r}, dist={dbg.get('dist_signed')!r}, "
-                        f"half={dbg.get('half')!r}, dot={dbg.get('dot_dir')!r}, "
-                        f"min_dot={dbg.get('min_dot')!r}, min_dist={dbg.get('min_dist')!r}, "
-                        f"violated={dbg.get('violated')!r}, reasons={reasons})"
+                        f"  DBG(mode={dbg.get('reward_mode')!r}, speed={dbg.get('speed')!r}, "
+                        f"dist={dbg.get('lp_dist')!r}, dot={dbg.get('lp_dot_dir')!r}, "
+                        f"angle={dbg.get('lp_angle_deg')!r}, r_orient={dbg.get('orientation_reward')!r}, "
+                        f"r_vel={dbg.get('velocity_reward')!r}, r_coll={dbg.get('collision_avoidance_reward')!r}, "
+                        f"done_env={dbg.get('terminated_from_env')!r}, reasons={reasons})"
                     )
 
                 pose_info = _fmt_pose(pose, yaw_use) + "  " if SHOW_POSE else ""

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Runtime map switch client for Duckiematrix.
+Send a map change request to a running engine.
 
 Usage:
   python change_map_runtime.py --map loop
