@@ -1,0 +1,105 @@
+[00000] pose=(0.435,0.742,0.000) yaw= 1.571 tile=(0, 1) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward= 5.592 orientation= 0.229 velocity= 0.250 collision= 0.000 final_reward= 0.479 total= 0.479
+  lane_terms: dist= 0.026 dot= 1.000 angle_deg= 0.000 target_angle_deg=-23.080 speed= 5.849
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.175,1.170,0.000),p1=(0.175,1.024,0.000),p2=(0.175,0.731,0.000),p3=(0.175,0.585,0.000)]', 'c1[p0=(0.410,0.585,0.000),p1=(0.410,0.731,0.000),p2=(0.410,1.024,0.000),p3=(0.410,1.170,0.000)]']
+[00004] pose=(0.435,0.780,0.000) yaw= 1.571 tile=(0, 1) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward= 0.066 orientation= 0.229 velocity= 0.250 collision= 0.000 final_reward= 0.479 total= 2.394
+  lane_terms: dist= 0.026 dot= 1.000 angle_deg= 0.000 target_angle_deg=-23.080 speed= 0.322
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.175,1.170,0.000),p1=(0.175,1.024,0.000),p2=(0.175,0.731,0.000),p3=(0.175,0.585,0.000)]', 'c1[p0=(0.410,0.585,0.000),p1=(0.410,0.731,0.000),p2=(0.410,1.024,0.000),p3=(0.410,1.170,0.000)]']
+[00007] pose=(0.435,0.829,0.000) yaw= 1.571 tile=(0, 1) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward= 0.216 orientation= 0.229 velocity= 0.250 collision= 0.000 final_reward= 0.479 total= 3.830
+  lane_terms: dist= 0.026 dot= 1.000 angle_deg= 0.000 target_angle_deg=-23.080 speed= 0.472
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.175,1.170,0.000),p1=(0.175,1.024,0.000),p2=(0.175,0.731,0.000),p3=(0.175,0.585,0.000)]', 'c1[p0=(0.410,0.585,0.000),p1=(0.410,0.731,0.000),p2=(0.410,1.024,0.000),p3=(0.410,1.170,0.000)]']
+[00010] pose=(0.435,0.889,0.000) yaw= 1.571 tile=(0, 1) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward= 0.274 orientation= 0.229 velocity= 0.250 collision= 0.000 final_reward= 0.479 total= 5.266
+  lane_terms: dist= 0.026 dot= 1.000 angle_deg= 0.000 target_angle_deg=-23.080 speed= 0.530
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.175,1.170,0.000),p1=(0.175,1.024,0.000),p2=(0.175,0.731,0.000),p3=(0.175,0.585,0.000)]', 'c1[p0=(0.410,0.585,0.000),p1=(0.410,0.731,0.000),p2=(0.410,1.024,0.000),p3=(0.410,1.170,0.000)]']
+[00013] pose=(0.435,0.957,0.000) yaw= 1.571 tile=(0, 1) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward= 0.304 orientation= 0.229 velocity= 0.250 collision= 0.000 final_reward= 0.479 total= 6.702
+  lane_terms: dist= 0.026 dot= 1.000 angle_deg= 0.000 target_angle_deg=-23.080 speed= 0.560
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.175,1.170,0.000),p1=(0.175,1.024,0.000),p2=(0.175,0.731,0.000),p3=(0.175,0.585,0.000)]', 'c1[p0=(0.410,0.585,0.000),p1=(0.410,0.731,0.000),p2=(0.410,1.024,0.000),p3=(0.410,1.170,0.000)]']
+[00016] pose=(0.435,1.027,0.000) yaw= 1.571 tile=(0, 1) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward= 0.078 orientation= 0.229 velocity= 0.250 collision= 0.000 final_reward= 0.479 total= 8.138
+  lane_terms: dist= 0.026 dot= 1.000 angle_deg= 0.000 target_angle_deg=-23.080 speed= 0.334
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.175,1.170,0.000),p1=(0.175,1.024,0.000),p2=(0.175,0.731,0.000),p3=(0.175,0.585,0.000)]', 'c1[p0=(0.410,0.585,0.000),p1=(0.410,0.731,0.000),p2=(0.410,1.024,0.000),p3=(0.410,1.170,0.000)]']
+[00019] pose=(0.435,1.106,0.000) yaw= 1.571 tile=(0, 1) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward= 0.370 orientation= 0.229 velocity= 0.250 collision= 0.000 final_reward= 0.479 total= 9.574
+  lane_terms: dist= 0.026 dot= 1.000 angle_deg= 0.000 target_angle_deg=-23.080 speed= 0.627
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.175,1.170,0.000),p1=(0.175,1.024,0.000),p2=(0.175,0.731,0.000),p3=(0.175,0.585,0.000)]', 'c1[p0=(0.410,0.585,0.000),p1=(0.410,0.731,0.000),p2=(0.410,1.024,0.000),p3=(0.410,1.170,0.000)]']
+[00022] pose=(0.435,1.164,0.000) yaw= 1.571 tile=(0, 1) kind=straight
+  action_reward: heading=[0.600] wheels=[1.000,0.400] base_reward= 0.318 orientation= 0.229 velocity= 0.250 collision= 0.000 final_reward= 0.479 total= 11.011
+  lane_terms: dist= 0.026 dot= 1.000 angle_deg= 0.000 target_angle_deg=-23.080 speed= 0.574
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.175,1.170,0.000),p1=(0.175,1.024,0.000),p2=(0.175,0.731,0.000),p3=(0.175,0.585,0.000)]', 'c1[p0=(0.410,0.585,0.000),p1=(0.410,0.731,0.000),p2=(0.410,1.024,0.000),p3=(0.410,1.170,0.000)]']
+[00025] pose=(0.438,1.241,0.000) yaw= 1.474 tile=(0, 2) kind=curve
+  action_reward: heading=[0.600] wheels=[1.000,0.400] base_reward= 0.295 orientation= 0.837 velocity= 0.250 collision= 0.000 final_reward= 1.087 total= 13.354
+  lane_terms: dist= 0.018 dot= 0.975 angle_deg=-12.840 target_angle_deg=-16.615 speed= 0.492
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.585,1.579,0.000),p1=(0.292,1.579,0.000),p2=(0.175,1.462,0.000),p3=(0.175,1.170,0.000)]', 'c1[p0=(0.410,1.170,0.000),p1=(0.410,1.287,0.000),p2=(0.468,1.345,0.000),p3=(0.585,1.345,0.000)]']
+[00028] pose=(0.450,1.306,0.000) yaw= 1.280 tile=(0, 2) kind=curve
+  action_reward: heading=[0.600] wheels=[1.000,0.400] base_reward= 0.353 orientation= 0.036 velocity= 0.250 collision= 0.000 final_reward= 0.286 total= 15.115
+  lane_terms: dist=-0.005 dot= 0.878 angle_deg=-28.602 target_angle_deg= 4.577 speed= 0.460
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.585,1.579,0.000),p1=(0.292,1.579,0.000),p2=(0.175,1.462,0.000),p3=(0.175,1.170,0.000)]', 'c1[p0=(0.410,1.170,0.000),p1=(0.410,1.287,0.000),p2=(0.468,1.345,0.000),p3=(0.585,1.345,0.000)]']
+[00031] pose=(0.470,1.354,0.000) yaw= 1.073 tile=(0, 2) kind=curve
+  action_reward: heading=[0.600] wheels=[1.000,0.400] base_reward= 0.023 orientation=-0.223 velocity= 0.250 collision= 0.000 final_reward= 0.027 total= 15.335
+  lane_terms: dist=-0.033 dot= 0.828 angle_deg=-34.068 target_angle_deg= 29.817 speed= 0.428
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.585,1.579,0.000),p1=(0.292,1.579,0.000),p2=(0.175,1.462,0.000),p3=(0.175,1.170,0.000)]', 'c1[p0=(0.410,1.170,0.000),p1=(0.410,1.287,0.000),p2=(0.468,1.345,0.000),p3=(0.585,1.345,0.000)]']
+[00034] pose=(0.507,1.404,0.000) yaw= 0.794 tile=(0, 2) kind=curve
+  action_reward: heading=[0.600] wheels=[1.000,0.400] base_reward=-0.285 orientation=-0.283 velocity= 0.250 collision= 0.000 final_reward=-0.033 total= 15.235
+  lane_terms: dist=-0.067 dot= 0.851 angle_deg=-31.727 target_angle_deg= 45.000 speed= 0.453
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.585,1.579,0.000),p1=(0.292,1.579,0.000),p2=(0.175,1.462,0.000),p3=(0.175,1.170,0.000)]', 'c1[p0=(0.410,1.170,0.000),p1=(0.410,1.287,0.000),p2=(0.468,1.345,0.000),p3=(0.585,1.345,0.000)]']
+[00037] pose=(0.541,1.432,0.000) yaw= 0.575 tile=(0, 2) kind=curve
+  action_reward: heading=[0.600] wheels=[1.000,0.400] base_reward=-0.529 orientation=-0.259 velocity= 0.250 collision= 0.000 final_reward=-0.009 total= 15.184
+  lane_terms: dist=-0.089 dot= 0.894 angle_deg=-26.565 target_angle_deg= 45.000 speed= 0.405
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(0.585,1.579,0.000),p1=(0.292,1.579,0.000),p2=(0.175,1.462,0.000),p3=(0.175,1.170,0.000)]', 'c1[p0=(0.410,1.170,0.000),p1=(0.410,1.287,0.000),p2=(0.468,1.345,0.000),p3=(0.585,1.345,0.000)]']
+[00040] pose=(0.586,1.454,0.000) yaw= 0.323 tile=(1, 2) kind=straight
+  action_reward: heading=[0.600] wheels=[1.000,0.400] base_reward=-0.699 orientation=-0.221 velocity= 0.250 collision= 0.000 final_reward= 0.029 total= 15.237
+  lane_terms: dist=-0.108 dot= 0.948 angle_deg=-18.492 target_angle_deg= 45.000 speed= 0.406
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(1.170,1.579,0.000),p1=(1.024,1.579,0.000),p2=(0.731,1.579,0.000),p3=(0.585,1.579,0.000)]', 'c1[p0=(0.585,1.345,0.000),p1=(0.731,1.345,0.000),p2=(1.024,1.345,0.000),p3=(1.170,1.345,0.000)]']
+[00042] pose=(0.632,1.463,0.000) yaw= 0.080 tile=(1, 2) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward=-0.756 orientation=-0.155 velocity= 0.250 collision= 0.000 final_reward= 0.095 total= 15.396
+  lane_terms: dist=-0.118 dot= 0.997 angle_deg=-4.597 target_angle_deg= 45.000 speed= 0.423
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(1.170,1.579,0.000),p1=(1.024,1.579,0.000),p2=(0.731,1.579,0.000),p3=(0.585,1.579,0.000)]', 'c1[p0=(0.585,1.345,0.000),p1=(0.731,1.345,0.000),p2=(1.024,1.345,0.000),p3=(1.170,1.345,0.000)]']
+[00045] pose=(0.691,1.462,0.000) yaw=-0.107 tile=(1, 2) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward=-0.648 orientation=-0.055 velocity= 0.250 collision= 0.000 final_reward= 0.195 total= 15.859
+  lane_terms: dist=-0.116 dot= 0.994 angle_deg= 6.128 target_angle_deg= 45.000 speed= 0.519
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(1.170,1.579,0.000),p1=(1.024,1.579,0.000),p2=(0.731,1.579,0.000),p3=(0.585,1.579,0.000)]', 'c1[p0=(0.585,1.345,0.000),p1=(0.731,1.345,0.000),p2=(1.024,1.345,0.000),p3=(1.170,1.345,0.000)]']
+[00048] pose=(0.759,1.450,0.000) yaw=-0.226 tile=(1, 2) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward=-0.512 orientation= 0.056 velocity= 0.250 collision= 0.000 final_reward= 0.306 total= 16.673
+  lane_terms: dist=-0.105 dot= 0.975 angle_deg= 12.940 target_angle_deg= 45.000 speed= 0.548
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(1.170,1.579,0.000),p1=(1.024,1.579,0.000),p2=(0.731,1.579,0.000),p3=(0.585,1.579,0.000)]', 'c1[p0=(0.585,1.345,0.000),p1=(0.731,1.345,0.000),p2=(1.024,1.345,0.000),p3=(1.170,1.345,0.000)]']
+[00051] pose=(0.826,1.432,0.000) yaw=-0.292 tile=(1, 2) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward=-0.321 orientation= 0.127 velocity= 0.250 collision= 0.000 final_reward= 0.377 total= 17.752
+  lane_terms: dist=-0.087 dot= 0.958 angle_deg= 16.715 target_angle_deg= 45.000 speed= 0.570
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(1.170,1.579,0.000),p1=(1.024,1.579,0.000),p2=(0.731,1.579,0.000),p3=(0.585,1.579,0.000)]', 'c1[p0=(0.585,1.345,0.000),p1=(0.731,1.345,0.000),p2=(1.024,1.345,0.000),p3=(1.170,1.345,0.000)]']
+[00054] pose=(0.901,1.408,0.000) yaw=-0.334 tile=(1, 2) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward=-0.043 orientation= 0.174 velocity= 0.250 collision= 0.000 final_reward= 0.424 total= 18.993
+  lane_terms: dist=-0.062 dot= 0.945 angle_deg= 19.152 target_angle_deg= 45.000 speed= 0.615
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(1.170,1.579,0.000),p1=(1.024,1.579,0.000),p2=(0.731,1.579,0.000),p3=(0.585,1.579,0.000)]', 'c1[p0=(0.585,1.345,0.000),p1=(0.731,1.345,0.000),p2=(1.024,1.345,0.000),p3=(1.170,1.345,0.000)]']
+[00057] pose=(0.968,1.385,0.000) yaw=-0.309 tile=(1, 2) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward= 0.079 orientation= 0.333 velocity= 0.250 collision= 0.000 final_reward= 0.583 total= 20.517
+  lane_terms: dist=-0.039 dot= 0.953 angle_deg= 17.680 target_angle_deg= 35.214 speed= 0.494
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(1.170,1.579,0.000),p1=(1.024,1.579,0.000),p2=(0.731,1.579,0.000),p3=(0.585,1.579,0.000)]', 'c1[p0=(0.585,1.345,0.000),p1=(0.731,1.345,0.000),p2=(1.024,1.345,0.000),p3=(1.170,1.345,0.000)]']
+[00059] pose=(1.021,1.369,0.000) yaw=-0.261 tile=(1, 2) kind=straight
+  action_reward: heading=[0.000] wheels=[1.000,1.000] base_reward= 0.287 orientation= 0.631 velocity= 0.250 collision= 0.000 final_reward= 0.881 total= 22.095
+  lane_terms: dist=-0.024 dot= 0.966 angle_deg= 14.928 target_angle_deg= 21.235 speed= 0.542
+  status: terminated=False truncated=False terminated_from_env=False pose_valid=True collision_reward_available=False invalid_points=[] first_invalid=None reasons=[]
+  control_points=['c0[p0=(1.170,1.579,0.000),p1=(1.024,1.579,0.000),p2=(0.731,1.579,0.000),p3=(0.585,1.579,0.000)]', 'c1[p0=(0.585,1.345,0.000),p1=(0.731,1.345,0.000),p2=(1.024,1.345,0.000),p3=(1.170,1.345,0.000)]']

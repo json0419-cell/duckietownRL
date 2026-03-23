@@ -14,11 +14,13 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.utils import get_schedule_fn
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecTransposeImage
 
 from gym_duckiematrix.DB21J import DuckiematrixDB21JEnv
 
 from action_wrappers import HeadingToWheelsWrapper
+from dtps_shutdown_patch import apply_dtps_shutdown_patch
 from map_interpreter_patch import use_patched_map_interpreter
 from observation_wrappers import ResizeCropWrapper
 from respawn_wrapper import VALID_RESPAWN_MODES, maybe_wrap_respawn
@@ -27,8 +29,17 @@ from start_stop_engine import start_engine, stop_engine
 
 
 DEFAULT_TOTAL_TIMESTEPS = 1_500_000
-DEFAULT_SEGMENT_TIMESTEPS = 50_000
-DEFAULT_MAX_EPISODE_STEPS = 800
+DEFAULT_SEGMENT_TIMESTEPS = 16_384
+DEFAULT_MAX_EPISODE_STEPS = 300
+DEFAULT_LEARNING_RATE = 5e-5
+DEFAULT_FORWARD_SPEED = 1.0
+
+
+def close_vec_env_gracefully(venv, drain_s: float = 0.2) -> None:
+    try:
+        venv.close()
+    finally:
+        time.sleep(max(0.0, float(drain_s)))
 
 
 def _read_topic_timestamp(url: str, timeout_s: float = 2.0) -> float | None:
@@ -99,7 +110,7 @@ def make_single_env(
     reward_kwargs: dict | None = None,
     obs_size: tuple[int, int] = (80, 160),
     crop_top_ratio: float = 0.33,
-    forward_speed: float = 1.0,
+    forward_speed: float = DEFAULT_FORWARD_SPEED,
     max_steer: float = 1.0,
 ):
     env = DuckiematrixDB21JEnv(
@@ -122,7 +133,11 @@ def make_single_env(
 
     out_h, out_w = obs_size
     env = ResizeCropWrapper(env, out_h=out_h, out_w=out_w, crop_top_ratio=crop_top_ratio)
-    env = HeadingToWheelsWrapper(env, forward_speed=forward_speed, max_steer=max_steer)
+    env = HeadingToWheelsWrapper(
+        env,
+        forward_speed=forward_speed,
+        max_steer=max_steer,
+    )
     env = TimeLimit(env, max_episode_steps=max_episode_steps)
     env = Monitor(env)
     return env
@@ -147,7 +162,7 @@ def build_vec_env(
             reward_kwargs=reward_kwargs,
             obs_size=(80, 160),
             crop_top_ratio=0.33,
-            forward_speed=1.0,
+            forward_speed=DEFAULT_FORWARD_SPEED,
             max_steer=1.0,
         )
 
@@ -167,6 +182,20 @@ def discover_maps(maps_root: Path) -> list[str]:
     return maps
 
 
+def parse_map_subset_arg(map_subset: str | None) -> list[str] | None:
+    if map_subset is None:
+        return None
+    names = [part.strip() for part in str(map_subset).split(",")]
+    names = [name for name in names if name]
+    if not names:
+        raise RuntimeError("map-subset was provided but no valid map names were found.")
+    deduped: list[str] = []
+    for name in names:
+        if name not in deduped:
+            deduped.append(name)
+    return deduped
+
+
 def map_engine_arg(maps_dir_arg: str, map_name: str) -> str:
     return str(Path(maps_dir_arg) / map_name)
 
@@ -178,6 +207,7 @@ def build_schedule(
     *,
     first_map: str,
     rng: random.Random,
+    map_order: str,
 ) -> list[tuple[str, int]]:
     if first_map not in available_maps:
         raise RuntimeError(f"Required first map '{first_map}' not found in maps directory.")
@@ -187,10 +217,13 @@ def build_schedule(
     schedule: list[tuple[str, int]] = []
     remaining = int(total_timesteps)
     segment_idx = 0
+    ordered_maps = [first_map] + [m for m in available_maps if m != first_map]
     while remaining > 0:
         steps = min(int(segment_timesteps), remaining)
         if segment_idx == 0:
             map_name = first_map
+        elif map_order == "round_robin":
+            map_name = ordered_maps[segment_idx % len(ordered_maps)]
         else:
             map_name = rng.choice(available_maps)
         schedule.append((map_name, steps))
@@ -226,8 +259,33 @@ def parse_args():
         help="respawn mode shared by the training wrapper and the engine patch",
     )
     p.add_argument("--maps-dir", type=str, default="./maps", help="local maps directory")
+    p.add_argument(
+        "--only-map",
+        type=str,
+        default=None,
+        help="restrict training to a single map inside --maps-dir; disables map rotation",
+    )
+    p.add_argument(
+        "--map-subset",
+        type=str,
+        default=None,
+        help="comma-separated map subset inside --maps-dir; preserves the given order",
+    )
     p.add_argument("--first-map", type=str, default="loop", help="map used for the first training segment")
     p.add_argument("--seed", type=int, default=1234, help="random seed for map selection")
+    p.add_argument(
+        "--map-order",
+        type=str,
+        default="round_robin",
+        choices=("round_robin", "random"),
+        help="map schedule for single-engine training after the first segment",
+    )
+    p.add_argument(
+        "--learning-rate",
+        type=float,
+        default=DEFAULT_LEARNING_RATE,
+        help="PPO learning rate; defaults to Duckietown-RL PPO lr",
+    )
     p.add_argument("--max-episode-steps", type=int, default=DEFAULT_MAX_EPISODE_STEPS, help="TimeLimit wrapper")
     p.add_argument("--engine-host", type=str, default="127.0.0.1", help="engine host")
     p.add_argument("--engine-port", type=int, default=7501, help="engine DTPS port")
@@ -264,6 +322,7 @@ def parse_args():
 
 def main():
     args = parse_args()
+    apply_dtps_shutdown_patch()
     logdir = Path(args.logdir).resolve()
     logdir.mkdir(parents=True, exist_ok=True)
     engine_log_dir = logdir / "engine_logs"
@@ -271,6 +330,19 @@ def main():
 
     maps_root = Path(args.maps_dir).resolve()
     available_maps = discover_maps(maps_root)
+    if args.only_map is not None:
+        if args.only_map not in available_maps:
+            raise RuntimeError(f"Requested only-map '{args.only_map}' not found under {maps_root}")
+        available_maps = [args.only_map]
+        args.first_map = args.only_map
+    elif args.map_subset is not None:
+        subset = parse_map_subset_arg(args.map_subset)
+        missing = [name for name in subset if name not in available_maps]
+        if missing:
+            raise RuntimeError(f"Requested map-subset contains unknown maps under {maps_root}: {missing}")
+        available_maps = subset
+        if args.first_map not in available_maps:
+            args.first_map = available_maps[0]
     rng = random.Random(args.seed)
     schedule = build_schedule(
         available_maps,
@@ -278,6 +350,7 @@ def main():
         args.segment_timesteps,
         first_map=args.first_map,
         rng=rng,
+        map_order=args.map_order,
     )
 
     respawn_kwargs = {
@@ -294,7 +367,10 @@ def main():
     }
 
     print(f"[INFO] discovered maps: {available_maps}")
-    print(f"[INFO] training schedule segments={len(schedule)} first={schedule[0][0]} segment_steps={args.segment_timesteps}")
+    print(
+        f"[INFO] training schedule segments={len(schedule)} first={schedule[0][0]} "
+        f"segment_steps={args.segment_timesteps} map_order={args.map_order}"
+    )
 
     model = None
     logger = configure(str(logdir), ["stdout", "csv", "tensorboard"])
@@ -306,7 +382,7 @@ def main():
         nonlocal current_proc, current_venv, current_engine_log
         if current_venv is not None:
             try:
-                current_venv.close()
+                close_vec_env_gracefully(current_venv)
             except Exception:
                 pass
             current_venv = None
@@ -377,6 +453,10 @@ def main():
                     if args.load_model:
                         print(f"[INFO] resuming training from: {args.load_model}")
                         model = PPO.load(args.load_model, env=current_venv, device=args.device)
+                        model.learning_rate = args.learning_rate
+                        model.lr_schedule = get_schedule_fn(args.learning_rate)
+                        for group in model.policy.optimizer.param_groups:
+                            group["lr"] = float(args.learning_rate)
                     else:
                         model = PPO(
                             policy="CnnPolicy",
@@ -385,11 +465,12 @@ def main():
                             tensorboard_log=str(logdir),
                             n_steps=2048,
                             batch_size=64,
-                            n_epochs=10,
+                            n_epochs=5,
                             gamma=0.99,
                             gae_lambda=0.95,
-                            learning_rate=3e-4,
+                            learning_rate=args.learning_rate,
                             clip_range=0.2,
+                            target_kl=0.03,
                             device=args.device,
                         )
                     model.set_logger(logger)
@@ -413,7 +494,7 @@ def main():
                 progressed = int(model.num_timesteps) - before_timesteps
                 remaining_steps = max(0, remaining_steps - max(progressed, 0))
 
-                current_venv.close()
+                close_vec_env_gracefully(current_venv)
                 current_venv = None
                 stop_engine(
                     current_proc,

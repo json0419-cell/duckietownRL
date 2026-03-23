@@ -145,7 +145,7 @@ def main() -> int:
         help="single integer or comma-separated integers aligned with --maps",
     )
     parser.add_argument("--cycles", type=int, default=1, help="repeat map sequence N times")
-    parser.add_argument("--logdir", type=str, default="./runs_db21j_ppo", help="training output directory")
+    parser.add_argument("--logdir", type=str, default="./runs_db21j_ppo_old", help="training output directory")
     parser.add_argument("--main-py", type=str, default="./Main.py", help="path to training entry script")
     parser.add_argument("--python", type=str, default=sys.executable, help="python executable for Main.py")
     parser.add_argument("--entity-name", type=str, default="map_0/vehicle_0", help="entity name")

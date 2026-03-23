@@ -50,4 +50,8 @@ Thumbs.db
 basic_no_random_respawn_single_map
 dt-duckiematrix-image-src
 docker
-runs_db21j_ppo
+runs_db21j_ppo_old
+runs_db21j_loop_only_V1
+runs_db21j_loop_only_v2
+runs_db21j_ppo_4
+docker

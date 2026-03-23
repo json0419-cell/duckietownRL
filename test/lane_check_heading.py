@@ -64,6 +64,16 @@ def _fmt_point(p):
     return f"({float(p[0]):.3f},{float(p[1]):.3f},{float(p[2]):.3f})"
 
 
+def _fmt_seq(values):
+    if values is None:
+        return "None"
+    try:
+        arr = np.asarray(values, dtype=np.float32).reshape(-1)
+        return "[" + ",".join(f"{float(v):.3f}" for v in arr) + "]"
+    except Exception:
+        return str(values)
+
+
 def _current_tile_control_points(base_env):
     pose = getattr(base_env, "last_pose", None)
     if pose is None:
@@ -138,14 +148,17 @@ def main():
 
             dist = None
             dot = None
+            dbg = {}
             if isinstance(info, dict):
                 dist = info.get("lp_dist")
                 dot = info.get("lp_dot_dir")
+                dbg = dict(info.get("debug_lane_reward", {}) or {})
 
             now = time.time()
             if now - last_print > 0.10:
                 last_print = now
                 pose = getattr(base_env, "last_pose", None)
+                wheel_vels = getattr(base_env, "wheelVels", None)
                 yaw_lane = None
                 if pose is not None:
                     try:
@@ -154,17 +167,34 @@ def main():
                         yaw_lane = None
                 tile, tile_obj, curves_out = _current_tile_control_points(base_env)
                 tile_kind = None if tile_obj is None else tile_obj.get("kind")
+                print(f"[{step_i:05d}] pose={_fmt_pose_xyz(pose)} yaw={_fmt_scalar(yaw_lane)} tile={tile} kind={tile_kind}")
                 print(
-                    f"[{step_i:05d}] "
-                    f"pose={_fmt_pose_xyz(pose)}  "
-                    f"yaw={_fmt_scalar(yaw_lane)}  "
-                    f"tile={tile} kind={tile_kind}  "
-                    f"control_points={curves_out}  "
-                    f"dist={_fmt_scalar(dist)}  "
-                    f"dot={_fmt_scalar(dot)}  "
-                    f"reward={float(reward): .3f}  "
-                    f"total={total_reward: .3f}"
+                    "  action_reward: "
+                    f"heading={_fmt_seq(action)} wheels={_fmt_seq(wheel_vels)} "
+                    f"base_reward={_fmt_scalar(dbg.get('base_reward'))} "
+                    f"orientation={_fmt_scalar(dbg.get('orientation_reward'))} "
+                    f"velocity={_fmt_scalar(dbg.get('velocity_reward'))} "
+                    f"collision={_fmt_scalar(dbg.get('collision_avoidance_reward'))} "
+                    f"final_reward={float(reward): .3f} total={total_reward: .3f}"
                 )
+                print(
+                    "  lane_terms: "
+                    f"dist={_fmt_scalar(dist)} dot={_fmt_scalar(dot)} "
+                    f"angle_deg={_fmt_scalar(dbg.get('lp_angle_deg'))} "
+                    f"target_angle_deg={_fmt_scalar(dbg.get('target_angle_deg'))} "
+                    f"speed={_fmt_scalar(dbg.get('speed'))}"
+                )
+                print(
+                    "  status: "
+                    f"terminated={terminated} truncated={truncated} "
+                    f"terminated_from_env={dbg.get('terminated_from_env')} "
+                    f"pose_valid={dbg.get('pose_valid')} "
+                    f"collision_reward_available={dbg.get('collision_reward_available')} "
+                    f"invalid_points={dbg.get('invalid_points')} "
+                    f"first_invalid={dbg.get('first_invalid_point')} "
+                    f"reasons={dbg.get('reasons')}"
+                )
+                print(f"  control_points={curves_out}")
 
             step_i += 1
 
