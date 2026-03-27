@@ -14,17 +14,7 @@ import lane_utils as lu
 from map_interpreter_patch import use_patched_map_interpreter
 from gym_duckiematrix.DB21J import DuckiematrixDB21JEnv
 from reward_wrappers import LaneFollowingRewardWrapper
-from lane_utils import (
-    pose_to_lane_frame,
-    is_in_lane,
-    tile_info,
-    lane_threshold,
-    LANE_CHECK_MODE,
-    LANE_POS_METHOD,
-    get_lane_pos,
-    get_lane_pos_by_distance,
-    yaw_from_displacement,
-)
+from lane_utils import pose_to_lane_frame, LANE_CHECK_MODE, LANE_POS_METHOD
 
 SHOW_POSE = True
 LANE_REWARD_KWARGS = {
@@ -66,56 +56,88 @@ def keys_to_action(keys, base=0.6, turn=0.35, clip=1.0):
     wr = float(np.clip(wr, -clip, clip))
     return np.array([wl, wr], dtype=np.float32)
 
-def _fmt_pose(pose, yaw):
+def _fmt_scalar(value):
+    if value is None:
+        return "None"
+    try:
+        return f"{float(value): .3f}"
+    except Exception:
+        return str(value)
+
+
+def _fmt_pose_xyz(pose):
+    if pose is None:
+        return "None"
     x = float(pose["position"]["x"])
     y = float(pose["position"]["y"])
     z = float(pose["position"]["z"])
-    return f"pose=({x:.3f},{y:.3f},{z:.3f}) yaw={yaw:.3f}"
+    return f"({x:.3f},{y:.3f},{z:.3f})"
 
-def _collect_curves(lp_cal, pos):
-    curves = []
-    if lu.NEIGHBOR_TILE_RADIUS > 0:
-        for t in lu._iter_neighbor_tiles(lp_cal, pos):
-            t_curves = t.get("curves")
-            if t_curves is None:
-                continue
-            curves.extend(lu._apply_curve_offset(lp_cal, t_curves))
-    else:
-        (i, j), _, _ = lu.tile_info(lp_cal, pos)
-        tile = lp_cal.map_interpreter.get_tile(i, j)
-        if tile is not None and tile.get("drivable", False):
-            curves = lu._apply_curve_offset(lp_cal, tile.get("curves"))
-    return curves if curves else None
 
-def _closest_curve_point(lp_cal, pos, angle):
-    curves = _collect_curves(lp_cal, pos)
-    if not curves:
-        return None, None
-    cps = lu._select_curve_by_heading(curves, angle) if angle is not None else None
-    if cps is None:
-        best = None
-        best_t = None
-        best_abs = None
-        for cand in curves:
-            t = lu._bezier_closest(cand, pos)
-            point = lu._bezier_point(cand, t)
-            d = float(np.linalg.norm(point - pos))
-            if best is None or d < best_abs:
-                best = cand
-                best_t = t
-                best_abs = d
-        cps = best
-        t = best_t
-    else:
-        t = lu._bezier_closest(cps, pos)
-    if cps is None or t is None:
-        return None, None
-    point = lu._bezier_point(cps, t)
-    tangent = lu._bezier_tangent(cps, t)
-    norm = float(np.linalg.norm(tangent))
-    if norm < 1e-6:
-        return point, None
-    return point, tangent / norm
+def _fmt_point(p):
+    p = np.asarray(p, dtype=np.float32)
+    return f"({float(p[0]):.3f},{float(p[1]):.3f},{float(p[2]):.3f})"
+
+
+def _fmt_seq(values):
+    if values is None:
+        return "None"
+    try:
+        arr = np.asarray(values, dtype=np.float32).reshape(-1)
+        return "[" + ",".join(f"{float(v):.3f}" for v in arr) + "]"
+    except Exception:
+        return str(values)
+
+
+def _current_tile_control_points(base_env):
+    pose = getattr(base_env, "last_pose", None)
+    if pose is None:
+        return None, None, []
+
+    pos_lane, _ = lu.pose_to_lane_frame(pose, lp_cal=base_env.lp_cal)
+    tile, _, _ = lu.tile_info(base_env.lp_cal, pos_lane)
+    tile_obj = base_env.lp_cal.map_interpreter.get_tile(int(tile[0]), int(tile[1]))
+    raw_curves = [] if tile_obj is None else tile_obj.get("curves", [])
+    lane_curves = lu._apply_curve_offset(base_env.lp_cal, raw_curves) or []
+
+    curves_out = []
+    for idx, cps in enumerate(lane_curves):
+        cps_arr = np.asarray(cps, dtype=np.float32)
+        labels = ",".join(f"p{i}={_fmt_point(p)}" for i, p in enumerate(cps_arr))
+        curves_out.append(f"c{idx}[{labels}]")
+    return tile, tile_obj, curves_out
+
+
+def _print_respawn_snapshot(base_env, label: str = "Respawn"):
+    pose = getattr(base_env, "last_pose", None)
+    if pose is None:
+        print(f"{label}: pose=None")
+        return
+
+    try:
+        pos_lane, yaw_lane = lu.pose_to_lane_frame(pose, lp_cal=base_env.lp_cal)
+    except Exception as e:
+        print(f"{label}: pose={_fmt_pose_xyz(pose)} lane_frame_error={type(e).__name__}")
+        return
+
+    tile, tile_obj, _ = _current_tile_control_points(base_env)
+    tile_kind = None if tile_obj is None else tile_obj.get("kind")
+
+    try:
+        lp = lu.get_lane_pos(base_env.lp_cal, pos_lane, float(yaw_lane))
+        dist = float(lp.dist)
+        dot = float(lp.dot_dir)
+        angle_deg = float(lp.angle_deg)
+        print(
+            f"{label}: pose={_fmt_pose_xyz(pose)} yaw={_fmt_scalar(yaw_lane)} "
+            f"tile={tile} kind={tile_kind} dist={dist: .3f} abs_dist={abs(dist): .3f} "
+            f"dot={dot: .3f} angle_deg={angle_deg: .3f}"
+        )
+    except Exception as e:
+        print(
+            f"{label}: pose={_fmt_pose_xyz(pose)} yaw={_fmt_scalar(yaw_lane)} "
+            f"tile={tile} kind={tile_kind} lane_pos_error={type(e).__name__}"
+        )
 
 def main():
     base_env = DuckiematrixDB21JEnv(
@@ -128,9 +150,10 @@ def main():
     use_patched_map_interpreter(base_env)
     env = LaneFollowingRewardWrapper(base_env, **LANE_REWARD_KWARGS)
     env.reset()
+    _print_respawn_snapshot(base_env, label="Initial respawn")
     if SHOW_POSE and base_env.last_pose is not None:
         pos0, yaw0 = pose_to_lane_frame(base_env.last_pose, lp_cal=base_env.lp_cal)
-        print(f"Initial {_fmt_pose(base_env.last_pose, yaw0)}")
+        print(f"Initial pose={_fmt_pose_xyz(base_env.last_pose)} yaw={_fmt_scalar(yaw0)}")
 
     pygame.init()
     pygame.display.set_mode((420, 120))
@@ -142,7 +165,6 @@ def main():
 
     step_i = 0
     last_print = 0.0
-    last_pos_lane = None
     total_reward = 0.0
 
     try:
@@ -159,90 +181,68 @@ def main():
 
             if keys[pygame.K_r]:
                 env.reset()
+                _print_respawn_snapshot(base_env, label="Manual respawn")
                 step_i = 0
-                last_pos_lane = None
                 total_reward = 0.0
                 time.sleep(0.15)
                 continue
 
             action = keys_to_action(keys)
             _, reward, terminated, truncated, info = env.step(action)
-            dbg = info.get("debug_lane_reward") if isinstance(info, dict) else None
             total_reward += float(reward)
 
-            pose = base_env.last_pose
-            pos, yaw = pose_to_lane_frame(pose, lp_cal=base_env.lp_cal)
-            yaw_use = yaw
-            if LANE_POS_METHOD == "heading" and last_pos_lane is not None:
-                yaw_vel = yaw_from_displacement(pos, last_pos_lane)
-                if yaw_vel is not None:
-                    yaw_use = yaw_vel
-            dir_dot = None
-            dir_ok = None
-            if last_pos_lane is not None:
-                yaw_vel = yaw_from_displacement(pos, last_pos_lane)
-                yaw_dir = yaw_vel if yaw_vel is not None else yaw_use
-                try:
-                    lp_dir = get_lane_pos_by_distance(
-                        base_env.lp_cal,
-                        pos,
-                        float(yaw_dir),
-                        keep_sign=True,
-                    )
-                    dir_dot = float(lp_dir.dot_dir)
-                    dir_ok = dir_dot >= 0.0
-                except Exception:
-                    pass
-
-            (ti, tj), kind, drivable = tile_info(base_env.lp_cal, pos)
-            kind_s = kind if kind is not None else "None"
+            dist = None
+            dot = None
+            dbg = {}
+            if isinstance(info, dict):
+                dist = info.get("lp_dist")
+                dot = info.get("lp_dot_dir")
+                dbg = dict(info.get("debug_lane_reward", {}) or {})
 
             now = time.time()
             if now - last_print > 0.10:
                 last_print = now
-
-                if dir_dot is not None:
-                    dir_info = f"  dir_dot={dir_dot: .3f}  dir_ok={dir_ok}"
-                else:
-                    dir_info = ""
-
-
-                lp = None
-                lp_err = None
-                try:
-                    lp = get_lane_pos(base_env.lp_cal, pos, yaw_use)
-                except Exception as e:
-                    lp_err = e
-
-                if lp is not None:
-                    if LANE_CHECK_MODE == "center":
-                        half = lane_threshold(base_env.lp_cal, pos=pos)
-                        lp_info = f"dist={float(lp.dist): .3f}  half={half: .3f}  dot_dir={float(lp.dot_dir): .3f}"
-                    else:
-                        lp_info = f"dist={float(lp.dist): .3f}  dot_dir={float(lp.dot_dir): .3f}"
-                else:
-                    lp_info = f"lp_error={type(lp_err).__name__}"
-
-                dbg_info = ""
-                if dbg is not None:
-                    reasons = ",".join(dbg.get("reasons", []))
-                    dbg_info = (
-                        f"  DBG(mode={dbg.get('reward_mode')!r}, speed={dbg.get('speed')!r}, "
-                        f"dist={dbg.get('lp_dist')!r}, dot={dbg.get('lp_dot_dir')!r}, "
-                        f"angle={dbg.get('lp_angle_deg')!r}, r_orient={dbg.get('orientation_reward')!r}, "
-                        f"r_vel={dbg.get('velocity_reward')!r}, r_coll={dbg.get('collision_avoidance_reward')!r}, "
-                        f"done_env={dbg.get('terminated_from_env')!r}, reasons={reasons})"
-                    )
-
-                pose_info = _fmt_pose(pose, yaw_use) + "  " if SHOW_POSE else ""
-                status = "IN_LANE" if is_in_lane(base_env.lp_cal, pos, yaw_use) else "NOT_IN_LANE"
+                pose = getattr(base_env, "last_pose", None)
+                wheel_vels = getattr(base_env, "wheelVels", None)
+                yaw_lane = None
+                if pose is not None:
+                    try:
+                        _, yaw_lane = lu.pose_to_lane_frame(pose, lp_cal=base_env.lp_cal)
+                    except Exception:
+                        yaw_lane = None
+                tile, tile_obj, curves_out = _current_tile_control_points(base_env)
+                tile_kind = None if tile_obj is None else tile_obj.get("kind")
+                print(f"[{step_i:05d}] pose={_fmt_pose_xyz(pose)} yaw={_fmt_scalar(yaw_lane)} tile={tile} kind={tile_kind}")
                 print(
-                    f"[{step_i:05d}] {pose_info}{status}  tile={ti},{tj} {kind_s} drivable={drivable}  "
-                    f"{lp_info}{dir_info}  reward={reward: .3f}  total={total_reward: .3f}{dbg_info}"
+                    "  action_reward: "
+                    f"action_wheels={_fmt_seq(action)} wheels={_fmt_seq(wheel_vels)} "
+                    f"base_reward={_fmt_scalar(dbg.get('base_reward'))} "
+                    f"orientation={_fmt_scalar(dbg.get('orientation_reward'))} "
+                    f"velocity={_fmt_scalar(dbg.get('velocity_reward'))} "
+                    f"collision={_fmt_scalar(dbg.get('collision_avoidance_reward'))} "
+                    f"final_reward={float(reward): .3f} total={total_reward: .3f}"
                 )
+                print(
+                    "  lane_terms: "
+                    f"mode={LANE_CHECK_MODE} method={LANE_POS_METHOD} "
+                    f"dist={_fmt_scalar(dist)} dot={_fmt_scalar(dot)} "
+                    f"angle_deg={_fmt_scalar(dbg.get('lp_angle_deg'))} "
+                    f"target_angle_deg={_fmt_scalar(dbg.get('target_angle_deg'))} "
+                    f"speed={_fmt_scalar(dbg.get('speed'))}"
+                )
+                print(
+                    "  status: "
+                    f"terminated={terminated} truncated={truncated} "
+                    f"terminated_from_env={dbg.get('terminated_from_env')} "
+                    f"pose_valid={dbg.get('pose_valid')} "
+                    f"collision_reward_available={dbg.get('collision_reward_available')} "
+                    f"invalid_points={dbg.get('invalid_points')} "
+                    f"first_invalid={dbg.get('first_invalid_point')} "
+                    f"reasons={dbg.get('reasons')}"
+                )
+                print(f"  control_points={curves_out}")
 
             step_i += 1
-            last_pos_lane = pos.copy()
 
             if terminated or truncated:
                 print("Episode ended. Press R to reset.")

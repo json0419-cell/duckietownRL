@@ -54,4 +54,10 @@ runs_db21j_ppo_old
 runs_db21j_loop_only_V1
 runs_db21j_loop_only_v2
 runs_db21j_ppo_4
+runs_db21j_loop_only
+runs_db21j_multi_engine
+runs_db21j_multi_engine_smoke
+test/control_point_curves
+test/loop_wheel_eval_v2_seg19_rerun
+test/optimal_reward_routes
 docker

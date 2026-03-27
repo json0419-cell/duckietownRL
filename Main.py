@@ -112,6 +112,8 @@ def make_single_env(
     crop_top_ratio: float = 0.33,
     forward_speed: float = DEFAULT_FORWARD_SPEED,
     max_steer: float = 1.0,
+    engine_host: str | None = None,
+    engine_port: int | None = None,
 ):
     env = DuckiematrixDB21JEnv(
         entity_name=entity_name,
@@ -119,6 +121,8 @@ def make_single_env(
         headless=headless,
         camera_height=480,
         camera_width=640,
+        host=engine_host,
+        port=engine_port,
     )
     use_patched_map_interpreter(env)
 
@@ -138,7 +142,8 @@ def make_single_env(
         forward_speed=forward_speed,
         max_steer=max_steer,
     )
-    env = TimeLimit(env, max_episode_steps=max_episode_steps)
+    if max_episode_steps > 0:
+        env = TimeLimit(env, max_episode_steps=max_episode_steps)
     env = Monitor(env)
     return env
 
@@ -151,6 +156,8 @@ def build_vec_env(
     respawn_mode: str,
     respawn_kwargs: dict,
     reward_kwargs: dict,
+    engine_host: str | None = None,
+    engine_port: int | None = None,
 ):
     def _factory():
         return make_single_env(
@@ -164,6 +171,8 @@ def build_vec_env(
             crop_top_ratio=0.33,
             forward_speed=DEFAULT_FORWARD_SPEED,
             max_steer=1.0,
+            engine_host=engine_host,
+            engine_port=engine_port,
         )
 
     venv = DummyVecEnv([_factory])
@@ -447,6 +456,8 @@ def main():
                     respawn_mode=args.respawn_mode,
                     respawn_kwargs=respawn_kwargs,
                     reward_kwargs=reward_kwargs,
+                    engine_host=args.engine_host,
+                    engine_port=args.engine_port,
                 )
 
                 if model is None:

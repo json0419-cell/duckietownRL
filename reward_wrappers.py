@@ -39,7 +39,7 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
         max_lp_dist: float = 0.05,
         max_dev_from_target_angle_deg_narrow: float = 10.0,
         max_dev_from_target_angle_deg_wide: float = 50.0,
-        target_angle_deg_at_edge: float = 35.0,
+        target_angle_deg_at_edge: float = 45.0,
         orientation_scale: float = 0.5,
         velocity_reward_scale: float = 0.25,
         dist_penalty_alpha: float = 1.0,

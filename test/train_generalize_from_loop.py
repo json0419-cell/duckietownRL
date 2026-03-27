@@ -5,17 +5,21 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_MODEL = "./runs_db21j_loop_only_v2/ppo_db21j_seg19_loop.zip"
+DEFAULT_MODEL = "./runs_db21j_generalize_loop_curling/ppo_db21j_seg06_curling.zip"
 DEFAULT_STAGES = [
-    ("stage01_loop_curling", ["loop", "curling"], 250_000),
-    ("stage02_add_third", ["loop", "curling", "third"], 300_000),
-    ("stage03_add_e", ["loop", "curling", "third", "e"], 400_000),
-    ("stage04_add_squares", ["loop", "curling", "third", "e", "squares"], 500_000),
+    {
+        "name": "stage01_loop_curling",
+        "maps": ["loop", "curling"],
+        "timesteps": 150_000,
+        "segment_timesteps": 8_192,
+        "mode": "map_subset",
+        "first_map": "loop",
+    },
 ]
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Curriculum generalization training starting from a good loop model.")
+    parser = argparse.ArgumentParser(description="Fine-tune the loop+curling stage from a selected checkpoint.")
     parser.add_argument(
         "--load-model",
         type=str,
@@ -26,19 +30,19 @@ def parse_args():
         "--timesteps-per-stage",
         type=int,
         default=None,
-        help="override training timesteps for every curriculum stage",
+        help="override training timesteps for the loop+curling stage",
     )
     parser.add_argument(
         "--segment-timesteps",
         type=int,
-        default=16_384,
-        help="segment size per map before engine restart",
+        default=None,
+        help="override segment size for the loop+curling stage",
     )
     parser.add_argument(
         "--logdir",
         type=str,
-        default="./runs_db21j_generalize_curriculum",
-        help="root output directory",
+        default="./runs_db21j_generalize_loop_curling_ft",
+        help="output directory",
     )
     parser.add_argument("--learning-rate", type=float, default=1e-5, help="PPO learning rate")
     parser.add_argument("--device", type=str, default="auto", help="torch device")
@@ -57,8 +61,8 @@ def main() -> int:
     args = parse_args()
     repo_root = Path(__file__).resolve().parents[1]
     main_py = repo_root / "Main.py"
-    logroot = Path(args.logdir).expanduser().resolve()
-    logroot.mkdir(parents=True, exist_ok=True)
+    stage_dir = Path(args.logdir).expanduser().resolve()
+    stage_dir.mkdir(parents=True, exist_ok=True)
 
     current_model = Path(args.load_model).expanduser().resolve()
     if not current_model.is_file():
@@ -68,57 +72,66 @@ def main() -> int:
     if extras and extras[0] == "--":
         extras = extras[1:]
 
-    for stage_name, maps, default_timesteps in DEFAULT_STAGES:
-        stage_dir = logroot / stage_name
-        stage_dir.mkdir(parents=True, exist_ok=True)
-        map_subset = ",".join(maps)
-        save_name = "ppo_db21j_curriculum"
-        stage_timesteps = int(args.timesteps_per_stage) if args.timesteps_per_stage is not None else int(default_timesteps)
-        cmd = [
-            sys.executable,
-            str(main_py),
-            "--timesteps",
-            str(stage_timesteps),
-            "--segment-timesteps",
-            str(args.segment_timesteps),
-            "--logdir",
-            str(stage_dir),
-            "--save-name",
-            save_name,
-            "--first-map",
-            maps[0],
-            "--map-subset",
-            map_subset,
-            "--map-order",
-            "round_robin",
-            "--device",
-            args.device,
-            "--learning-rate",
-            str(args.learning_rate),
-            "--graphics-api",
-            args.graphics_api,
-            "--load-model",
-            str(current_model),
-        ]
+    stage = DEFAULT_STAGES[0]
+    save_name = "ppo_db21j_loop_curling"
+    stage_timesteps = (
+        int(args.timesteps_per_stage)
+        if args.timesteps_per_stage is not None
+        else int(stage["timesteps"])
+    )
+    segment_timesteps = (
+        int(args.segment_timesteps)
+        if args.segment_timesteps is not None
+        else int(stage["segment_timesteps"])
+    )
+    cmd = [
+        sys.executable,
+        str(main_py),
+        "--timesteps",
+        str(stage_timesteps),
+        "--segment-timesteps",
+        str(segment_timesteps),
+        "--logdir",
+        str(stage_dir),
+        "--save-name",
+        save_name,
+        "--first-map",
+        stage["first_map"],
+        "--map-order",
+        "round_robin",
+        "--device",
+        args.device,
+        "--learning-rate",
+        str(args.learning_rate),
+        "--graphics-api",
+        args.graphics_api,
+        "--load-model",
+        str(current_model),
+        "--map-subset",
+        ",".join(stage["maps"]),
+    ]
 
-        if args.show_figure:
-            cmd.append("--show-figure")
-        if args.pull:
-            cmd.append("--pull")
-        if extras:
-            cmd.extend(extras)
+    if args.show_figure:
+        cmd.append("--show-figure")
+    if args.pull:
+        cmd.append("--pull")
+    if extras:
+        cmd.extend(extras)
 
-        print(f"[INFO] curriculum stage {stage_name}: maps={maps} timesteps={stage_timesteps}")
-        print("[INFO] command:", " ".join(cmd))
-        rc = subprocess.call(cmd, cwd=str(repo_root))
-        if rc != 0:
-            return rc
+    print(
+        f"[INFO] loop+curling stage: maps={stage['maps']} timesteps={stage_timesteps} "
+        f"segment_timesteps={segment_timesteps}"
+    )
+    print("[INFO] command:", " ".join(cmd))
+    rc = subprocess.call(cmd, cwd=str(repo_root))
+    if rc != 0:
+        return rc
 
-        current_model = stage_dir / f"{save_name}.zip"
-        if not current_model.is_file():
-            raise FileNotFoundError(f"Expected stage output model not found: {current_model}")
+    current_model = stage_dir / f"{save_name}.zip"
+    if not current_model.is_file():
+        raise FileNotFoundError(f"Expected output model not found: {current_model}")
 
-    print(f"[DONE] final curriculum model: {current_model}")
+    print(f"[DONE] final model: {current_model}")
     return 0
 
 

@@ -32,7 +32,7 @@ def parse_args():
         "--max-episode-steps",
         type=int,
         default=DEFAULT_MAX_EPISODE_STEPS,
-        help="TimeLimit wrapper for one episode",
+        help="TimeLimit wrapper for one episode; use 0 to disable TimeLimit",
     )
     parser.add_argument("--entity-name", type=str, default="map_0/vehicle_0", help="target vehicle entity name")
     parser.add_argument(
@@ -87,8 +87,8 @@ def validate_args(args) -> tuple[Path, Path, Path]:
 
     if args.episodes <= 0:
         raise ValueError("--episodes must be positive")
-    if args.max_episode_steps <= 0:
-        raise ValueError("--max-episode-steps must be positive")
+    if args.max_episode_steps < 0:
+        raise ValueError("--max-episode-steps must be non-negative")
 
     if args.engine_log:
         engine_log_path = Path(args.engine_log).expanduser().resolve()
@@ -175,6 +175,8 @@ def main():
             respawn_mode=args.respawn_mode,
             respawn_kwargs=respawn_kwargs,
             reward_kwargs=reward_kwargs,
+            engine_host=args.engine_host,
+            engine_port=args.engine_port,
         )
         model = PPO.load(str(model_path), env=venv, device=args.device)
 
