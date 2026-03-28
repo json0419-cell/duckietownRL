@@ -1,0 +1,178 @@
+version: 1.0
+tiles:
+  map_0/tile_0_0:
+    type: curve
+  map_0/tile_0_1:
+    type: straight
+  map_0/tile_0_2:
+    type: curve
+  map_0/tile_0_3:
+    type: floor
+  map_0/tile_0_4:
+    type: floor
+  map_0/tile_0_5:
+    type: floor
+  map_0/tile_0_6:
+    type: floor
+  map_0/tile_0_7:
+    type: floor
+  map_0/tile_0_8:
+    type: curve
+  map_0/tile_0_9:
+    type: straight
+  map_0/tile_0_10:
+    type: curve
+  map_0/tile_1_0:
+    type: straight
+  map_0/tile_1_1:
+    type: floor
+  map_0/tile_1_2:
+    type: straight
+  map_0/tile_1_3:
+    type: floor
+  map_0/tile_1_4:
+    type: floor
+  map_0/tile_1_5:
+    type: floor
+  map_0/tile_1_6:
+    type: floor
+  map_0/tile_1_7:
+    type: floor
+  map_0/tile_1_8:
+    type: straight
+  map_0/tile_1_9:
+    type: floor
+  map_0/tile_1_10:
+    type: straight
+  map_0/tile_2_0:
+    type: straight
+  map_0/tile_2_1:
+    type: floor
+  map_0/tile_2_2:
+    type: curve
+  map_0/tile_2_3:
+    type: curve
+  map_0/tile_2_4:
+    type: floor
+  map_0/tile_2_5:
+    type: floor
+  map_0/tile_2_6:
+    type: floor
+  map_0/tile_2_7:
+    type: curve
+  map_0/tile_2_8:
+    type: curve
+  map_0/tile_2_9:
+    type: floor
+  map_0/tile_2_10:
+    type: straight
+  map_0/tile_3_0:
+    type: curve
+  map_0/tile_3_1:
+    type: curve
+  map_0/tile_3_2:
+    type: floor
+  map_0/tile_3_3:
+    type: curve
+  map_0/tile_3_4:
+    type: curve
+  map_0/tile_3_5:
+    type: floor
+  map_0/tile_3_6:
+    type: curve
+  map_0/tile_3_7:
+    type: curve
+  map_0/tile_3_8:
+    type: floor
+  map_0/tile_3_9:
+    type: curve
+  map_0/tile_3_10:
+    type: curve
+  map_0/tile_4_0:
+    type: floor
+  map_0/tile_4_1:
+    type: curve
+  map_0/tile_4_2:
+    type: curve
+  map_0/tile_4_3:
+    type: floor
+  map_0/tile_4_4:
+    type: curve
+  map_0/tile_4_5:
+    type: straight
+  map_0/tile_4_6:
+    type: curve
+  map_0/tile_4_7:
+    type: floor
+  map_0/tile_4_8:
+    type: curve
+  map_0/tile_4_9:
+    type: curve
+  map_0/tile_4_10:
+    type: floor
+  map_0/tile_5_0:
+    type: floor
+  map_0/tile_5_1:
+    type: floor
+  map_0/tile_5_2:
+    type: curve
+  map_0/tile_5_3:
+    type: curve
+  map_0/tile_5_4:
+    type: floor
+  map_0/tile_5_5:
+    type: floor
+  map_0/tile_5_6:
+    type: floor
+  map_0/tile_5_7:
+    type: curve
+  map_0/tile_5_8:
+    type: curve
+  map_0/tile_5_9:
+    type: floor
+  map_0/tile_5_10:
+    type: floor
+  map_0/tile_6_0:
+    type: floor
+  map_0/tile_6_1:
+    type: floor
+  map_0/tile_6_2:
+    type: floor
+  map_0/tile_6_3:
+    type: curve
+  map_0/tile_6_4:
+    type: curve
+  map_0/tile_6_5:
+    type: floor
+  map_0/tile_6_6:
+    type: curve
+  map_0/tile_6_7:
+    type: curve
+  map_0/tile_6_8:
+    type: floor
+  map_0/tile_6_9:
+    type: floor
+  map_0/tile_6_10:
+    type: floor
+  map_0/tile_7_0:
+    type: floor
+  map_0/tile_7_1:
+    type: floor
+  map_0/tile_7_2:
+    type: floor
+  map_0/tile_7_3:
+    type: floor
+  map_0/tile_7_4:
+    type: curve
+  map_0/tile_7_5:
+    type: straight
+  map_0/tile_7_6:
+    type: curve
+  map_0/tile_7_7:
+    type: floor
+  map_0/tile_7_8:
+    type: floor
+  map_0/tile_7_9:
+    type: floor
+  map_0/tile_7_10:
+    type: floor

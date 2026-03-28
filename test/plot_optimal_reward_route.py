@@ -175,8 +175,7 @@ def _sample_route(curves, samples_per_curve: int):
             yaw = _yaw_from_tangent(tangent)
             orientation_reward, target_angle_deg = _orientation_reward(0.0, 0.0)
             velocity_reward = 0.25
-            collision_reward = 0.0
-            final_reward = orientation_reward + velocity_reward + collision_reward
+            final_reward = orientation_reward + velocity_reward
             rows.append(
                 {
                     "curve_id": curve.curve_id,
@@ -193,7 +192,6 @@ def _sample_route(curves, samples_per_curve: int):
                     "target_angle_deg": float(target_angle_deg),
                     "orientation_reward": float(orientation_reward),
                     "velocity_reward": float(velocity_reward),
-                    "collision_reward": float(collision_reward),
                     "final_reward": float(final_reward),
                 }
             )

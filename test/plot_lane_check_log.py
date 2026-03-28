@@ -36,7 +36,7 @@ HEADER_RE = re.compile(
 ACTION_RE = re.compile(
     r"^\s*action_reward:\s+heading=(?P<heading>\[[^\]]*\])\s+wheels=(?P<wheels>\[[^\]]*\])\s+"
     r"base_reward=\s*(?P<base_reward>[-+0-9.eE]+)\s+orientation=\s*(?P<orientation>[-+0-9.eE]+)\s+"
-    r"velocity=\s*(?P<velocity>[-+0-9.eE]+)\s+collision=\s*(?P<collision>[-+0-9.eE]+)\s+"
+    r"velocity=\s*(?P<velocity>[-+0-9.eE]+)\s+"
     r"final_reward=\s*(?P<final_reward>[-+0-9.eE]+)\s+total=\s*(?P<total>[-+0-9.eE]+)"
 )
 LANE_RE = re.compile(
@@ -47,7 +47,6 @@ LANE_RE = re.compile(
 STATUS_RE = re.compile(
     r"^\s*status:\s+terminated=(?P<terminated>True|False)\s+truncated=(?P<truncated>True|False)\s+"
     r"terminated_from_env=(?P<terminated_from_env>True|False)\s+pose_valid=(?P<pose_valid>True|False)\s+"
-    r"collision_reward_available=(?P<collision_reward_available>True|False)\s+"
     r"invalid_points=(?P<invalid_points>.*?)\s+first_invalid=(?P<first_invalid>.*?)\s+reasons=(?P<reasons>.*)$"
 )
 
@@ -110,7 +109,6 @@ def parse_log(log_path: Path):
                         "base_reward": float(match.group("base_reward")),
                         "orientation_reward": float(match.group("orientation")),
                         "velocity_reward": float(match.group("velocity")),
-                        "collision_reward": float(match.group("collision")),
                         "final_reward": float(match.group("final_reward")),
                         "total_reward": float(match.group("total")),
                     }
@@ -138,7 +136,6 @@ def parse_log(log_path: Path):
                         "truncated": _parse_bool(match.group("truncated")),
                         "terminated_from_env": _parse_bool(match.group("terminated_from_env")),
                         "pose_valid": _parse_bool(match.group("pose_valid")),
-                        "collision_reward_available": _parse_bool(match.group("collision_reward_available")),
                         "invalid_points": _parse_literal(match.group("invalid_points")),
                         "first_invalid": _parse_literal(match.group("first_invalid")),
                         "reasons": _parse_literal(match.group("reasons")),
@@ -156,9 +153,7 @@ def add_checks(rows, max_lp_dist: float, target_angle_deg_at_edge: float):
         clipped_dist = float(np.clip(row["dist"] / max_lp_dist, -1.0, 1.0))
         row["expected_target_angle_deg"] = -clipped_dist * target_angle_deg_at_edge
         row["target_angle_error"] = row["target_angle_deg"] - row["expected_target_angle_deg"]
-        row["expected_final_reward"] = (
-            row["orientation_reward"] + row["velocity_reward"] + row["collision_reward"]
-        )
+        row["expected_final_reward"] = row["orientation_reward"] + row["velocity_reward"]
         row["final_reward_error"] = row["final_reward"] - row["expected_final_reward"]
 
 
@@ -177,7 +172,6 @@ def write_csv(rows, csv_path: Path):
         "base_reward",
         "orientation_reward",
         "velocity_reward",
-        "collision_reward",
         "final_reward",
         "total_reward",
         "dist",
@@ -189,7 +183,6 @@ def write_csv(rows, csv_path: Path):
         "truncated",
         "terminated_from_env",
         "pose_valid",
-        "collision_reward_available",
         "invalid_points",
         "first_invalid",
         "reasons",
@@ -215,7 +208,6 @@ def plot_rows(rows, out_path: Path):
     base_reward = np.array([row["base_reward"] for row in rows], dtype=np.float32)
     orientation = np.array([row["orientation_reward"] for row in rows], dtype=np.float32)
     velocity = np.array([row["velocity_reward"] for row in rows], dtype=np.float32)
-    collision = np.array([row["collision_reward"] for row in rows], dtype=np.float32)
     final_reward = np.array([row["final_reward"] for row in rows], dtype=np.float32)
     dist = np.array([row["dist"] for row in rows], dtype=np.float32)
     dot = np.array([row["dot"] for row in rows], dtype=np.float32)
@@ -244,7 +236,6 @@ def plot_rows(rows, out_path: Path):
     ax.plot(steps, base_reward, label="base", linewidth=1.2)
     ax.plot(steps, orientation, label="orientation", linewidth=1.2)
     ax.plot(steps, velocity, label="velocity", linewidth=1.2)
-    ax.plot(steps, collision, label="collision", linewidth=1.2)
     ax.plot(steps, final_reward, label="final", linewidth=1.8)
     ax.set_title("Reward Components")
     ax.set_xlabel("step")

@@ -150,7 +150,6 @@ def main():
     reward_kwargs = {
         "reward_mode": "posangle",
         "include_velocity_reward": True,
-        "include_collision_avoidance": True,
     }
 
     engine_proc = None
@@ -247,7 +246,6 @@ def main():
                         "reward": reward_value,
                         "orientation_reward": float(custom_rewards.get("orientation", np.nan)),
                         "velocity_reward": float(custom_rewards.get("velocity", np.nan)),
-                        "collision_reward": float(custom_rewards.get("collision_avoidance", np.nan)),
                         "dist_penalty": float(custom_rewards.get("dist_penalty", np.nan)),
                         "speed": float(info0.get("speed", np.nan)),
                         "lp_dist": float(info0.get("lp_dist", np.nan)) if info0.get("lp_dist") is not None else np.nan,

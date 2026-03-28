@@ -35,7 +35,6 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
         env: gym.Env,
         reward_mode: str = "posangle",
         include_velocity_reward: bool = True,
-        include_collision_avoidance: bool = True,
         max_lp_dist: float = 0.05,
         max_dev_from_target_angle_deg_narrow: float = 10.0,
         max_dev_from_target_angle_deg_wide: float = 50.0,
@@ -49,7 +48,6 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
 
         self.reward_mode = str(reward_mode)
         self.include_velocity_reward = bool(include_velocity_reward)
-        self.include_collision_avoidance = bool(include_collision_avoidance)
         self.max_lp_dist = float(max_lp_dist)
         self.max_dev_from_target_angle_deg_narrow = float(max_dev_from_target_angle_deg_narrow)
         self.max_dev_from_target_angle_deg_wide = float(max_dev_from_target_angle_deg_wide)
@@ -62,10 +60,8 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
         self.last_pose = None
         self.last_speed = 0.0
         self.last_lp = None
-        self.prev_proximity_penalty = 0.0
         self.orientation_reward = 0.0
         self.velocity_reward = 0.0
-        self.collision_avoidance_reward = 0.0
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
@@ -74,10 +70,8 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
         self.last_pose = getattr(base, "last_pose", None)
         self.last_speed = 0.0
         self.last_lp = None
-        self.prev_proximity_penalty = 0.0
         self.orientation_reward = 0.0
         self.velocity_reward = 0.0
-        self.collision_avoidance_reward = 0.0
         return obs, info
 
     def step(self, action) -> Tuple:
@@ -102,7 +96,6 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
         custom_rewards = dict(info.get("custom_rewards", {}))
         custom_rewards["orientation"] = float(self.orientation_reward)
         custom_rewards["velocity"] = float(self.velocity_reward)
-        custom_rewards["collision_avoidance"] = float(self.collision_avoidance_reward)
         custom_rewards["dist_penalty"] = float(dbg.get("dist_penalty", 0.0))
         info["custom_rewards"] = custom_rewards
         info["speed"] = self.last_speed
@@ -139,29 +132,11 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
         if wheel_vels is None:
             return 0.0
 
-        vel_reward = float(np.mean(np.asarray(wheel_vels, dtype=np.float32))) * self.velocity_reward_scale
+        # Match Duckietown-RL: reward forward progress/survival via the fastest wheel.
+        vel_reward = float(np.max(np.asarray(wheel_vels, dtype=np.float32))) * self.velocity_reward_scale
         if np.isnan(vel_reward):
             vel_reward = 0.0
         return float(vel_reward)
-
-    def _collision_reward(self, base_env) -> Tuple[float, bool]:
-        if not self.include_collision_avoidance:
-            return 0.0, False
-
-        has_proximity = (
-            hasattr(base_env, "proximity_penalty2")
-            and hasattr(base_env, "cur_pos")
-            and hasattr(base_env, "cur_angle")
-        )
-        if not has_proximity:
-            return 0.0, False
-
-        proximity_penalty = float(base_env.proximity_penalty2(base_env.cur_pos, base_env.cur_angle))
-        proximity_reward = -(self.prev_proximity_penalty - proximity_penalty) * 50.0
-        if proximity_reward < 0.0:
-            proximity_reward = 0.0
-        self.prev_proximity_penalty = proximity_penalty
-        return float(proximity_reward), True
 
     def _duckietown_rl_reward(
         self,
@@ -189,9 +164,7 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
             "target_angle_deg": None,
             "orientation_reward": 0.0,
             "velocity_reward": 0.0,
-            "collision_avoidance_reward": 0.0,
             "dist_penalty": 0.0,
-            "collision_reward_available": False,
             "base_reward": float(base_reward),
             "reward": None,
             "reasons": [],
@@ -240,7 +213,9 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
 
                 narrow, wide, target_angle_deg = self._calculate_pos_angle_reward(lp.dist, lp.angle_deg)
                 dbg["target_angle_deg"] = float(target_angle_deg)
-                dist_penalty = self.dist_penalty_alpha * abs(float(lp.dist))
+                # Keep the field for debug output, but disable the explicit distance penalty.
+                # dist_penalty = self.dist_penalty_alpha * abs(float(lp.dist))
+                dist_penalty = 0.0
 
                 if self.reward_mode == "target_orientation":
                     orientation_reward = narrow
@@ -266,23 +241,17 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
             dbg["reasons"].append(f"unknown_reward_mode:{self.reward_mode}")
 
         velocity_reward = self._wheel_velocity_reward(base_env)
-        collision_reward, collision_available = self._collision_reward(base_env)
 
         self.orientation_reward = float(orientation_reward)
         self.velocity_reward = float(velocity_reward)
-        self.collision_avoidance_reward = float(collision_reward)
 
         dbg["orientation_reward"] = self.orientation_reward
         dbg["velocity_reward"] = self.velocity_reward
-        dbg["collision_avoidance_reward"] = self.collision_avoidance_reward
         dbg["dist_penalty"] = float(dist_penalty)
-        dbg["collision_reward_available"] = bool(collision_available)
 
         reward = float(
             reward
             + velocity_reward
-            + collision_reward
-            - dist_penalty
         )
         dbg["reward"] = float(reward)
 

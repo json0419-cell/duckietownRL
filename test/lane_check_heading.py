@@ -20,7 +20,6 @@ from reward_wrappers import LaneFollowingRewardWrapper
 LANE_REWARD_KWARGS = {
     "reward_mode": "posangle",
     "include_velocity_reward": True,
-    "include_collision_avoidance": True,
 }
 
 RESPAWN_KWARGS = {
@@ -174,7 +173,6 @@ def main():
                     f"base_reward={_fmt_scalar(dbg.get('base_reward'))} "
                     f"orientation={_fmt_scalar(dbg.get('orientation_reward'))} "
                     f"velocity={_fmt_scalar(dbg.get('velocity_reward'))} "
-                    f"collision={_fmt_scalar(dbg.get('collision_avoidance_reward'))} "
                     f"final_reward={float(reward): .3f} total={total_reward: .3f}"
                 )
                 print(
@@ -189,7 +187,6 @@ def main():
                     f"terminated={terminated} truncated={truncated} "
                     f"terminated_from_env={dbg.get('terminated_from_env')} "
                     f"pose_valid={dbg.get('pose_valid')} "
-                    f"collision_reward_available={dbg.get('collision_reward_available')} "
                     f"invalid_points={dbg.get('invalid_points')} "
                     f"first_invalid={dbg.get('first_invalid_point')} "
                     f"reasons={dbg.get('reasons')}"

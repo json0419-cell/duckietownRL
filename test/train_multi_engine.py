@@ -250,6 +250,7 @@ def auto_launch_instances(args: argparse.Namespace, maps: list[str], logdir: Pat
     instances = build_instances(launcher_args)
     launched: list[tuple[object, subprocess.Popen, object]] = []
     for inst in instances:
+        stop_engine_container(inst.engine_name)
         log_file = open(inst.log_path, "w", encoding="utf-8")
         proc = subprocess.Popen(
             inst.cmd,
@@ -312,7 +313,6 @@ def main() -> int:
     reward_kwargs = {
         "reward_mode": "posangle",
         "include_velocity_reward": True,
-        "include_collision_avoidance": True,
     }
     respawn_kwargs = {
         "lateral_jitter": 0.02,
@@ -357,7 +357,7 @@ def main() -> int:
                 gae_lambda=0.95,
                 learning_rate=args.learning_rate,
                 clip_range=0.2,
-                target_kl=0.03,
+                target_kl=0.05,
                 device=args.device,
             )
 

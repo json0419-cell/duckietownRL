@@ -60,4 +60,5 @@ runs_db21j_multi_engine_smoke
 test/control_point_curves
 test/loop_wheel_eval_v2_seg19_rerun
 test/optimal_reward_routes
+runs_db21j_multi_engine_rllib
 docker

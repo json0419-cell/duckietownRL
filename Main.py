@@ -371,7 +371,6 @@ def main():
     reward_kwargs = {
         "reward_mode": "posangle",
         "include_velocity_reward": True,
-        "include_collision_avoidance": True,
     }
 
     print(f"[INFO] discovered maps: {available_maps}")

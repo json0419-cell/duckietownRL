@@ -112,7 +112,6 @@ def main():
     reward_kwargs = {
         "reward_mode": "posangle",
         "include_velocity_reward": True,
-        "include_collision_avoidance": True,
     }
 
     engine_proc = None

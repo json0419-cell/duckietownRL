@@ -154,6 +154,7 @@ def build_instances(args: argparse.Namespace) -> list[InstanceConfig]:
             "--map",
             map_arg,
             "--verbose",
+            "--no-tutorial",
         ]
         if args.graphics_api == "opengl":
             cmd.append("--force-opengl")
@@ -202,7 +203,7 @@ def terminate_process(proc: subprocess.Popen | None) -> None:
 
 def stop_engine_container(engine_name: str) -> None:
     subprocess.run(
-        ["docker", "stop", engine_name],
+        ["docker", "rm", "-f", engine_name],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -228,6 +229,7 @@ def main() -> int:
     procs: list[tuple[InstanceConfig, subprocess.Popen, object]] = []
     try:
         for inst in instances:
+            stop_engine_container(inst.engine_name)
             log_file = open(inst.log_path, "w", encoding="utf-8")
             proc = subprocess.Popen(
                 inst.cmd,
