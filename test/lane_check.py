@@ -12,7 +12,7 @@ if PROJECT_ROOT not in sys.path:
 
 import lane_utils as lu
 from map_interpreter_patch import use_patched_map_interpreter
-from gym_duckiematrix.DB21J import DuckiematrixDB21JEnv
+from duckiematrix_env import DuckiematrixDB21JEnv
 from reward_wrappers import LaneFollowingRewardWrapper
 from lane_utils import pose_to_lane_frame, LANE_CHECK_MODE, LANE_POS_METHOD
 

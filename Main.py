@@ -17,9 +17,8 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import get_schedule_fn
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecTransposeImage
 
-from gym_duckiematrix.DB21J import DuckiematrixDB21JEnv
-
 from action_wrappers import HeadingToWheelsWrapper
+from duckiematrix_env import DuckiematrixDB21JEnv
 from dtps_shutdown_patch import apply_dtps_shutdown_patch
 from map_interpreter_patch import use_patched_map_interpreter
 from observation_wrappers import ResizeCropWrapper

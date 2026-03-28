@@ -9,7 +9,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from gym_duckiematrix.DB21J import DuckiematrixDB21JEnv
+from duckiematrix_env import DuckiematrixDB21JEnv
 
 from action_wrappers import HeadingToWheelsWrapper
 import lane_utils as lu

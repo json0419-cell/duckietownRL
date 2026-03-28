@@ -354,7 +354,7 @@ def _run_cli():
     parser.add_argument("--auto-reset", action="store_true", help="reset env automatically when terminated/truncated")
     args = parser.parse_args()
 
-    from gym_duckiematrix.DB21J import DuckiematrixDB21JEnv
+    from duckiematrix_env import DuckiematrixDB21JEnv
 
     env = DuckiematrixDB21JEnv(
         entity_name=args.entity_name,

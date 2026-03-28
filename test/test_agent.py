@@ -6,12 +6,17 @@ Example:
 """
 import argparse
 import os
+import sys
 import numpy as np
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecTransposeImage, VecFrameStack
 
-from gym_duckiematrix.DB21J import DuckiematrixDB21JEnv
+PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from duckiematrix_env import DuckiematrixDB21JEnv
 from reward_wrappers import LaneFollowingRewardWrapper
 from observation_wrappers import ResizeCropWrapper
 from action_wrappers import HeadingToWheelsWrapper
