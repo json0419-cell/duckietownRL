@@ -438,8 +438,6 @@ def main() -> int:
                 "This script currently assumes one env runner per engine."
             )
         rollout_fragment_length = parse_rollout_fragment_length(args.rollout_fragment_length)
-        if rollout_fragment_length == "auto":
-            rollout_fragment_length = 265
 
         reward_kwargs = {
             "reward_mode": "posangle",
