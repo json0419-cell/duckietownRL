@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import pickle
 import subprocess
 import sys
 import time
@@ -381,6 +382,30 @@ def _save_checkpoint(algo, save_dir: Path) -> Path:
     return Path(str(saved)).resolve()
 
 
+def _checkpoint_resume_timesteps(checkpoint_dir: Path) -> int:
+    state_file = checkpoint_dir / "algorithm_state.pkl"
+    if not state_file.exists():
+        return 0
+
+    with state_file.open("rb") as f:
+        state = pickle.load(f)
+
+    if not isinstance(state, dict):
+        return 0
+
+    counters = state.get("counters", {})
+    for key in (
+        "num_env_steps_sampled",
+        "num_env_steps_sampled_lifetime",
+        "num_agent_steps_sampled",
+        "num_agent_steps_sampled_lifetime",
+    ):
+        value = counters.get(key)
+        if value is not None:
+            return int(value)
+    return 0
+
+
 def main() -> int:
     args = parse_args()
 
@@ -506,7 +531,7 @@ def main() -> int:
                 batch_mode="truncate_episodes",
                 sample_timeout_s=args.sample_timeout_s,
             )
-            .resources(num_gpus=0)
+            .resources(num_gpus=1)
             .training(
                 train_batch_size=args.train_batch_size,
                 lr=args.learning_rate,
@@ -523,26 +548,30 @@ def main() -> int:
         )
 
         algo = config.build_algo()
+        start_timesteps = 0
         if args.load_checkpoint:
             ckpt = Path(args.load_checkpoint).expanduser().resolve()
             if not ckpt.exists():
                 raise FileNotFoundError(f"Checkpoint not found: {ckpt}")
             print(f"[INFO] restoring checkpoint: {ckpt}")
+            start_timesteps = _checkpoint_resume_timesteps(ckpt)
             algo.restore(str(ckpt))
 
         checkpoints_dir = logdir / "checkpoints"
-        next_checkpoint_t = max(args.checkpoint_freq, 0)
+        next_checkpoint_t = start_timesteps + max(args.checkpoint_freq, 0)
         best_reward = None
         best_path = None
+        target_timesteps = start_timesteps + args.timesteps
 
         print(
             f"[INFO] RLlib training with {total_workers} remote rollout workers "
             f"(local=0 remote={total_workers}) across {len(specs)} engines "
-            f"for {args.timesteps} timesteps"
+            f"for {args.timesteps} additional timesteps "
+            f"(resume={start_timesteps}, target={target_timesteps})"
         )
 
-        total_timesteps = 0
-        while total_timesteps < args.timesteps:
+        total_timesteps = start_timesteps
+        while total_timesteps < target_timesteps:
             result = algo.train()
             total_timesteps = _result_timesteps(result)
             reward_mean = _result_reward_mean(result)
