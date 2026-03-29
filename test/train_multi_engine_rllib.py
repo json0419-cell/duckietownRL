@@ -167,7 +167,10 @@ def parse_args() -> argparse.Namespace:
         "--num-workers",
         type=int,
         default=0,
-        help="number of remote rollout workers; 0 means one worker per engine/map",
+        help=(
+            "number of remote rollout workers; 0 means one worker per requested map. "
+            "If larger than the map count, maps are repeated modulo-style."
+        ),
     )
     parser.add_argument(
         "--rollout-fragment-length",
@@ -214,6 +217,14 @@ def resolve_maps(args: argparse.Namespace) -> list[str]:
         return parse_maps(args.maps)
     maps_root = Path(args.maps_dir).expanduser().resolve()
     return discover_maps(maps_root)
+
+
+def expand_maps_for_workers(maps: list[str], num_workers: int) -> list[str]:
+    if not maps:
+        raise ValueError("No maps available to expand")
+    if num_workers <= 0 or num_workers == len(maps):
+        return list(maps)
+    return [maps[idx % len(maps)] for idx in range(num_workers)]
 
 
 def default_offsets(count: int) -> list[int]:
@@ -423,10 +434,11 @@ def main() -> int:
     logdir.mkdir(parents=True, exist_ok=True)
 
     maps = resolve_maps(args)
+    worker_maps = expand_maps_for_workers(maps, args.num_workers)
     launched_instances: list[tuple[object, subprocess.Popen, object]] = []
 
     if args.attach_only:
-        world_ports = parse_ports_or_offsets(args, len(maps))
+        world_ports = parse_ports_or_offsets(args, len(worker_maps))
         specs = [
             InstanceSpec(
                 map_name=map_name,
@@ -434,10 +446,10 @@ def main() -> int:
                 world_port=world_port,
                 entity_name=args.entity_name,
             )
-            for map_name, world_port in zip(maps, world_ports)
+            for map_name, world_port in zip(worker_maps, world_ports)
         ]
     else:
-        instances, launched_instances = auto_launch_instances(args, maps, logdir)
+        instances, launched_instances = auto_launch_instances(args, worker_maps, logdir)
         specs = [
             InstanceSpec(
                 map_name=inst.map_label,
@@ -456,12 +468,7 @@ def main() -> int:
             )
             wait_instance_ready(spec)
 
-        total_workers = args.num_workers if args.num_workers > 0 else len(specs)
-        if total_workers > len(specs):
-            raise ValueError(
-                f"Requested num_workers={total_workers}, but only {len(specs)} standalone instances are available. "
-                "This script currently assumes one env runner per engine."
-            )
+        total_workers = len(specs)
         rollout_fragment_length = parse_rollout_fragment_length(args.rollout_fragment_length)
 
         reward_kwargs = {
