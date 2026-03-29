@@ -66,6 +66,7 @@ class ChannelFrameStack(gym.Wrapper):
             dtype=np.float32,
         )
 
+
     @staticmethod
     def _prepare_frame(obs) -> np.ndarray:
         frame = np.asarray(obs, dtype=np.float32)
