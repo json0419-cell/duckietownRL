@@ -62,4 +62,5 @@ test/loop_wheel_eval_v2_seg19_rerun
 test/optimal_reward_routes
 runs_db21j_multi_engine_rllib
 runs_db21j_multi_engine_rllib_smallloop_plus
+runs_db21j_multi_engine_rllib_loop_only
 docker
