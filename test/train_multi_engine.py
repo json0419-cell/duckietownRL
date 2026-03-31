@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -100,6 +101,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-name", type=str, default="ppo_db21j_multi_engine", help="model basename")
     parser.add_argument("--load-model", type=str, default=None, help="resume from a PPO .zip")
     parser.add_argument("--respawn-mode", type=str, default="random", choices=("random", "fixed"))
+    parser.add_argument(
+        "--respawn-backend",
+        type=str,
+        default="engine",
+        choices=("engine", "wrapper", "hybrid"),
+        help="which side owns respawn selection/validation",
+    )
     parser.add_argument("--headless", action="store_true", help="leave DB21J matplotlib windows disabled")
     parser.add_argument(
         "--start-method",
@@ -180,6 +188,7 @@ def make_env_factory(
     *,
     max_episode_steps: int,
     respawn_mode: str,
+    respawn_backend: str,
     reward_kwargs: dict,
     respawn_kwargs: dict,
 ):
@@ -189,6 +198,7 @@ def make_env_factory(
             headless=True,
             max_episode_steps=max_episode_steps,
             respawn_mode=respawn_mode,
+            respawn_backend=respawn_backend,
             respawn_kwargs=respawn_kwargs,
             reward_kwargs=reward_kwargs,
             obs_size=(80, 160),
@@ -207,6 +217,7 @@ def build_multi_vec_env(
     *,
     max_episode_steps: int,
     respawn_mode: str,
+    respawn_backend: str,
     reward_kwargs: dict,
     respawn_kwargs: dict,
     start_method: str,
@@ -216,6 +227,7 @@ def build_multi_vec_env(
             spec,
             max_episode_steps=max_episode_steps,
             respawn_mode=respawn_mode,
+            respawn_backend=respawn_backend,
             reward_kwargs=reward_kwargs,
             respawn_kwargs=respawn_kwargs,
         )
@@ -230,7 +242,13 @@ def build_multi_vec_env(
     return venv
 
 
-def auto_launch_instances(args: argparse.Namespace, maps: list[str], logdir: Path):
+def auto_launch_instances(
+    args: argparse.Namespace,
+    maps: list[str],
+    logdir: Path,
+    *,
+    env_overrides: dict[str, str] | None = None,
+):
     standalone_logdir = (
         Path(args.standalone_logdir).expanduser().resolve()
         if args.standalone_logdir
@@ -252,11 +270,15 @@ def auto_launch_instances(args: argparse.Namespace, maps: list[str], logdir: Pat
     for inst in instances:
         stop_engine_container(inst.engine_name)
         log_file = open(inst.log_path, "w", encoding="utf-8")
+        env = os.environ.copy()
+        if env_overrides:
+            env.update(env_overrides)
         proc = subprocess.Popen(
             inst.cmd,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            env=env,
         )
         launched.append((inst, proc, log_file))
         print(
@@ -279,6 +301,18 @@ def main() -> int:
 
     maps = resolve_maps(args)
     launched_instances: list[tuple[object, subprocess.Popen, object]] = []
+    respawn_kwargs = {
+        "lateral_jitter": 0.02,
+        "yaw_jitter_deg": 0.0,
+        "fallback_bbox": None,
+        "avoid_junction": True,
+        "max_spawn_angle_deg": 4.0,
+    }
+    engine_respawn_mode = args.respawn_mode if args.respawn_backend != "wrapper" else "fixed"
+    engine_env_overrides = {
+        "DUCKIEMATRIX_RESPAWN_MODE": engine_respawn_mode,
+        "DUCKIEMATRIX_RESPAWN_MAX_SPAWN_ANGLE_DEG": str(respawn_kwargs["max_spawn_angle_deg"]),
+    }
 
     if args.attach_only:
         world_ports = parse_ports_or_offsets(args, len(maps))
@@ -292,7 +326,12 @@ def main() -> int:
             for map_name, world_port in zip(maps, world_ports)
         ]
     else:
-        instances, launched_instances = auto_launch_instances(args, maps, logdir)
+        instances, launched_instances = auto_launch_instances(
+            args,
+            maps,
+            logdir,
+            env_overrides=engine_env_overrides,
+        )
         specs = [
             InstanceSpec(
                 map_name=inst.map_label,
@@ -314,18 +353,12 @@ def main() -> int:
         "reward_mode": "posangle",
         "include_velocity_reward": True,
     }
-    respawn_kwargs = {
-        "lateral_jitter": 0.02,
-        "yaw_jitter_deg": 0.0,
-        "fallback_bbox": None,
-        "avoid_junction": True,
-        "max_spawn_angle_deg": 4.0,
-    }
 
     venv = build_multi_vec_env(
         specs,
         max_episode_steps=args.max_episode_steps,
         respawn_mode=args.respawn_mode,
+        respawn_backend=args.respawn_backend,
         reward_kwargs=reward_kwargs,
         respawn_kwargs=respawn_kwargs,
         start_method=args.start_method,

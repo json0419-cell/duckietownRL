@@ -1,5 +1,6 @@
 import logging
 import math
+import time
 
 import gymnasium as gym
 
@@ -23,6 +24,11 @@ RESPAWN_MODE_ALIASES = {
 
 
 logger = logging.getLogger(__name__)
+
+
+def _is_transient_stream_stall(error: Exception) -> bool:
+    text = str(error).lower()
+    return "stream stalled" in text or "no fresh rgb frame" in text or "no fresh pose" in text
 
 
 def normalize_respawn_mode(respawn_mode: str | None) -> str:
@@ -155,7 +161,19 @@ class RandomRespawnWrapper(gym.Wrapper):
         attempt = 0
         while True:
             attempt += 1
-            obs, info = self.env.reset(**kwargs)
+            try:
+                obs, info = self.env.reset(**kwargs)
+            except RuntimeError as e:
+                if not _is_transient_stream_stall(e):
+                    raise
+                if attempt % 5 == 0:
+                    logger.warning(
+                        "RandomRespawnWrapper reset retry after transient stream stall: attempts=%d error=%s",
+                        attempt,
+                        e,
+                    )
+                time.sleep(min(0.5, 0.05 * attempt))
+                continue
             obs, info = self._try_random_respawn(obs, info)
             status = self._spawn_status()
             self.last_reset_tile = status["tile"]

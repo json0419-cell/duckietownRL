@@ -32,6 +32,15 @@ DEFAULT_SEGMENT_TIMESTEPS = 16_384
 DEFAULT_MAX_EPISODE_STEPS = 300
 DEFAULT_LEARNING_RATE = 5e-5
 DEFAULT_FORWARD_SPEED = 1.0
+VALID_RESPAWN_BACKENDS = ("engine", "wrapper", "hybrid")
+
+
+def normalize_respawn_backend(respawn_backend: str | None) -> str:
+    backend = (respawn_backend or "wrapper").strip().lower()
+    if backend not in VALID_RESPAWN_BACKENDS:
+        choices = ", ".join(VALID_RESPAWN_BACKENDS)
+        raise ValueError(f"Unsupported respawn backend '{respawn_backend}'. Expected one of: {choices}")
+    return backend
 
 
 def close_vec_env_gracefully(venv, drain_s: float = 0.2) -> None:
@@ -105,6 +114,7 @@ def make_single_env(
     headless: bool = True,
     max_episode_steps: int = DEFAULT_MAX_EPISODE_STEPS,
     respawn_mode: str = "random",
+    respawn_backend: str = "wrapper",
     respawn_kwargs: dict | None = None,
     reward_kwargs: dict | None = None,
     obs_size: tuple[int, int] = (80, 160),
@@ -125,11 +135,12 @@ def make_single_env(
     )
     use_patched_map_interpreter(env)
 
-    env = maybe_wrap_respawn(
-        env,
-        respawn_mode=respawn_mode,
-        respawn_kwargs=respawn_kwargs,
-    )
+    if normalize_respawn_backend(respawn_backend) in ("wrapper", "hybrid"):
+        env = maybe_wrap_respawn(
+            env,
+            respawn_mode=respawn_mode,
+            respawn_kwargs=respawn_kwargs,
+        )
 
     reward_kwargs = reward_kwargs or {}
     env = LaneFollowingRewardWrapper(env, **reward_kwargs)
@@ -153,6 +164,7 @@ def build_vec_env(
     headless: bool,
     max_episode_steps: int,
     respawn_mode: str,
+    respawn_backend: str = "wrapper",
     respawn_kwargs: dict,
     reward_kwargs: dict,
     engine_host: str | None = None,
@@ -164,6 +176,7 @@ def build_vec_env(
             headless=headless,
             max_episode_steps=max_episode_steps,
             respawn_mode=respawn_mode,
+            respawn_backend=respawn_backend,
             respawn_kwargs=respawn_kwargs,
             reward_kwargs=reward_kwargs,
             obs_size=(80, 160),

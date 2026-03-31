@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import pickle
 import subprocess
 import sys
@@ -163,6 +164,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-name", type=str, default="rllib_db21j_multi_engine", help="checkpoint basename")
     parser.add_argument("--load-checkpoint", type=str, default=None, help="resume from an RLlib checkpoint directory")
     parser.add_argument("--respawn-mode", type=str, default="random", choices=("random", "fixed"))
+    parser.add_argument(
+        "--respawn-backend",
+        type=str,
+        default="engine",
+        choices=("engine", "wrapper", "hybrid"),
+        help="which side owns respawn selection/validation",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--num-workers",
@@ -272,7 +280,13 @@ def wait_instance_ready(spec: InstanceSpec, timeout_s: float = 40.0) -> None:
     raise RuntimeError(f"Instance not ready on port {spec.world_port}: {pose_url}")
 
 
-def auto_launch_instances(args: argparse.Namespace, maps: list[str], logdir: Path):
+def auto_launch_instances(
+    args: argparse.Namespace,
+    maps: list[str],
+    logdir: Path,
+    *,
+    env_overrides: dict[str, str] | None = None,
+):
     standalone_logdir = (
         Path(args.standalone_logdir).expanduser().resolve()
         if args.standalone_logdir
@@ -294,11 +308,15 @@ def auto_launch_instances(args: argparse.Namespace, maps: list[str], logdir: Pat
     for inst in instances:
         stop_engine_container(inst.engine_name)
         log_file = open(inst.log_path, "w", encoding="utf-8")
+        env = os.environ.copy()
+        if env_overrides:
+            env.update(env_overrides)
         proc = subprocess.Popen(
             inst.cmd,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            env=env,
         )
         launched.append((inst, proc, log_file))
         print(
@@ -328,6 +346,7 @@ def make_rllib_env(env_config):
         headless=True,
         max_episode_steps=int(env_config["max_episode_steps"]),
         respawn_mode=str(env_config["respawn_mode"]),
+        respawn_backend=str(env_config.get("respawn_backend", "wrapper")),
         respawn_kwargs=dict(env_config["respawn_kwargs"]),
         reward_kwargs=dict(env_config["reward_kwargs"]),
         obs_size=DEFAULT_OBS_SHAPE,
@@ -437,6 +456,18 @@ def main() -> int:
     maps = resolve_maps(args)
     worker_maps = expand_maps_for_workers(maps, args.num_workers)
     launched_instances: list[tuple[object, subprocess.Popen, object]] = []
+    respawn_kwargs = {
+        "lateral_jitter": 0.02,
+        "yaw_jitter_deg": 0.0,
+        "fallback_bbox": None,
+        "avoid_junction": True,
+        "max_spawn_angle_deg": 4.0,
+    }
+    engine_respawn_mode = args.respawn_mode if args.respawn_backend != "wrapper" else "fixed"
+    engine_env_overrides = {
+        "DUCKIEMATRIX_RESPAWN_MODE": engine_respawn_mode,
+        "DUCKIEMATRIX_RESPAWN_MAX_SPAWN_ANGLE_DEG": str(respawn_kwargs["max_spawn_angle_deg"]),
+    }
 
     if args.attach_only:
         world_ports = parse_ports_or_offsets(args, len(worker_maps))
@@ -450,7 +481,12 @@ def main() -> int:
             for map_name, world_port in zip(worker_maps, world_ports)
         ]
     else:
-        instances, launched_instances = auto_launch_instances(args, worker_maps, logdir)
+        instances, launched_instances = auto_launch_instances(
+            args,
+            worker_maps,
+            logdir,
+            env_overrides=engine_env_overrides,
+        )
         specs = [
             InstanceSpec(
                 map_name=inst.map_label,
@@ -476,13 +512,6 @@ def main() -> int:
             "reward_mode": "posangle",
             "include_velocity_reward": True,
         }
-        respawn_kwargs = {
-            "lateral_jitter": 0.02,
-            "yaw_jitter_deg": 0.0,
-            "fallback_bbox": None,
-            "avoid_junction": True,
-            "max_spawn_angle_deg": 4.0,
-        }
         env_config = {
             "specs": [
                 {
@@ -495,6 +524,7 @@ def main() -> int:
             ],
             "max_episode_steps": args.max_episode_steps,
             "respawn_mode": args.respawn_mode,
+            "respawn_backend": args.respawn_backend,
             "respawn_kwargs": respawn_kwargs,
             "reward_kwargs": reward_kwargs,
             "frame_stack": args.frame_stack,

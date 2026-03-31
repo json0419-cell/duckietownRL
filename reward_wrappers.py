@@ -41,7 +41,7 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
         target_angle_deg_at_edge: float = 45.0,
         orientation_scale: float = 0.5,
         velocity_reward_scale: float = 0.25,
-        dist_penalty_alpha: float = 1.0,
+        dist_penalty_alpha: float = 0.8,
         **legacy_kwargs,
     ):
         super().__init__(env)
@@ -213,9 +213,7 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
 
                 narrow, wide, target_angle_deg = self._calculate_pos_angle_reward(lp.dist, lp.angle_deg)
                 dbg["target_angle_deg"] = float(target_angle_deg)
-                # Keep the field for debug output, but disable the explicit distance penalty.
-                # dist_penalty = self.dist_penalty_alpha * abs(float(lp.dist))
-                dist_penalty = 0.0
+                dist_penalty = -self.dist_penalty_alpha * abs(float(lp.dist))
 
                 if self.reward_mode == "target_orientation":
                     orientation_reward = narrow
@@ -251,6 +249,7 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
 
         reward = float(
             reward
+            + dist_penalty
             + velocity_reward
         )
         dbg["reward"] = float(reward)

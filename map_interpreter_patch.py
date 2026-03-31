@@ -1,3 +1,5 @@
+import logging
+import time
 from types import MethodType
 
 import numpy as np
@@ -5,20 +7,79 @@ from duckietown.sdk.utils.lane_position import LanePositionCalculator, MapInterp
 
 import lane_utils as lu
 
-DEFAULT_CAPTURE_TIMEOUT_S = 1.0
+DEFAULT_CAPTURE_TIMEOUT_S = 2.0
+DEFAULT_CAPTURE_RETRIES = 3
+DEFAULT_CAPTURE_RETRY_SLEEP_S = 0.2
+
+
+logger = logging.getLogger(__name__)
+
+
+def _stream_context(self) -> str:
+    entity_name = getattr(self, "entity_name", "unknown")
+    host = getattr(self, "host", "unknown")
+    port = getattr(self, "port", "unknown")
+    return f"entity={entity_name} host={host} port={port}"
+
+
+def _capture_with_retries(
+    self,
+    *,
+    stream_name: str,
+    capture_fn,
+    timeout_s: float = DEFAULT_CAPTURE_TIMEOUT_S,
+    retries: int = DEFAULT_CAPTURE_RETRIES,
+):
+    retries = max(1, int(retries))
+    timeout_s = max(0.1, float(timeout_s))
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            data = capture_fn(block=True, timeout=timeout_s)
+        except Exception as e:
+            last_error = e
+            data = None
+        if data is not None:
+            if attempt > 1:
+                logger.warning(
+                    "%s stream recovered after %d/%d attempts (%s)",
+                    stream_name,
+                    attempt,
+                    retries,
+                    _stream_context(self),
+                )
+            return data
+        if attempt < retries:
+            time.sleep(DEFAULT_CAPTURE_RETRY_SLEEP_S * attempt)
+
+    details = _stream_context(self)
+    if last_error is not None:
+        raise RuntimeError(
+            f"{stream_name} stream stalled after {retries} attempts x {timeout_s:.1f}s "
+            f"({details}): {last_error}"
+        ) from last_error
+    raise RuntimeError(
+        f"{stream_name} stream stalled: no fresh {stream_name.lower()} available after "
+        f"{retries} attempts x {timeout_s:.1f}s ({details})."
+    )
 
 
 def _patched_get_pose_blocking(self, timeout_s: float = DEFAULT_CAPTURE_TIMEOUT_S):
-    pose = self.robot.pose.capture(block=True, timeout=timeout_s)
-    if pose is None:
-        raise RuntimeError("Pose stream stalled: no fresh pose available after timeout.")
-    return pose
+    return _capture_with_retries(
+        self,
+        stream_name="Pose",
+        capture_fn=self.robot.pose.capture,
+        timeout_s=timeout_s,
+    )
 
 
 def _patched_get_rgb_frame_blocking(self, timeout_s: float = DEFAULT_CAPTURE_TIMEOUT_S):
-    bgr = self.robot.camera.capture(block=True, timeout=timeout_s)
-    if bgr is None:
-        raise RuntimeError("Camera stream stalled: no fresh RGB frame available after timeout.")
+    bgr = _capture_with_retries(
+        self,
+        stream_name="Camera",
+        capture_fn=self.robot.camera.capture,
+        timeout_s=timeout_s,
+    )
     rgb = np.asarray(bgr, dtype=np.uint8)[:, :, [2, 1, 0]]
     return rgb
 
