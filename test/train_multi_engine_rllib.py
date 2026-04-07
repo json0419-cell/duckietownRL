@@ -18,8 +18,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from Main import DEFAULT_FORWARD_SPEED, DEFAULT_MAX_EPISODE_STEPS, discover_maps, make_single_env
+from Main import (
+    DEFAULT_FORWARD_SPEED,
+    DEFAULT_FRAME_REPEAT_PROB,
+    DEFAULT_HEADING_TYPE,
+    DEFAULT_MAX_EPISODE_STEPS,
+    DEFAULT_MOTION_BLUR_KERNEL_SIZE,
+    DEFAULT_MAX_STEER,
+    discover_maps,
+    make_single_env,
+)
 from multi_standalone import build_instances, stop_engine_container, terminate_process
+from action_wrappers import VALID_HEADING_TYPES
 
 
 DEFAULT_WORLD_PORT = 7501
@@ -148,6 +158,31 @@ def parse_args() -> argparse.Namespace:
         help="TimeLimit wrapper; use 0 to disable",
     )
     parser.add_argument("--learning-rate", type=float, default=5e-5, help="PPO learning rate")
+    parser.add_argument(
+        "--forward-speed",
+        type=float,
+        default=DEFAULT_FORWARD_SPEED,
+        help="global wheel-speed scale applied after heading-to-wheels mapping",
+    )
+    parser.add_argument(
+        "--heading-type",
+        type=str,
+        default=DEFAULT_HEADING_TYPE,
+        choices=VALID_HEADING_TYPES,
+        help="scalar steering-to-wheel mapping used by the environment",
+    )
+    parser.add_argument(
+        "--frame-repeat-prob",
+        type=float,
+        default=DEFAULT_FRAME_REPEAT_PROB,
+        help="probability of repeating the previous resized observation frame",
+    )
+    parser.add_argument(
+        "--motion-blur-kernel-size",
+        type=int,
+        default=DEFAULT_MOTION_BLUR_KERNEL_SIZE,
+        help="Duckietown-RL-style rotational blur strength after resize; use 0 to disable",
+    )
     parser.add_argument("--logdir", type=str, default="./runs_db21j_multi_engine_rllib", help="output directory")
     parser.add_argument(
         "--standalone-logdir",
@@ -351,8 +386,13 @@ def make_rllib_env(env_config):
         reward_kwargs=dict(env_config["reward_kwargs"]),
         obs_size=DEFAULT_OBS_SHAPE,
         crop_top_ratio=0.33,
-        forward_speed=DEFAULT_FORWARD_SPEED,
-        max_steer=1.0,
+        forward_speed=float(env_config.get("forward_speed", DEFAULT_FORWARD_SPEED)),
+        max_steer=DEFAULT_MAX_STEER,
+        heading_type=str(env_config.get("heading_type", DEFAULT_HEADING_TYPE)),
+        frame_repeat_prob=float(env_config.get("frame_repeat_prob", DEFAULT_FRAME_REPEAT_PROB)),
+        motion_blur_kernel_size=int(
+            env_config.get("motion_blur_kernel_size", DEFAULT_MOTION_BLUR_KERNEL_SIZE)
+        ),
         engine_host=spec["host"],
         engine_port=int(spec["world_port"]),
     )
@@ -511,6 +551,7 @@ def main() -> int:
         reward_kwargs = {
             "reward_mode": "posangle",
             "include_velocity_reward": True,
+            "dist_penalty_alpha": 0.5,
         }
         env_config = {
             "specs": [
@@ -527,6 +568,10 @@ def main() -> int:
             "respawn_backend": args.respawn_backend,
             "respawn_kwargs": respawn_kwargs,
             "reward_kwargs": reward_kwargs,
+            "forward_speed": args.forward_speed,
+            "heading_type": args.heading_type,
+            "frame_repeat_prob": args.frame_repeat_prob,
+            "motion_blur_kernel_size": args.motion_blur_kernel_size,
             "frame_stack": args.frame_stack,
             "has_local_env_runner": False,
         }

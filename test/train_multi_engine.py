@@ -19,8 +19,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from Main import DEFAULT_MAX_EPISODE_STEPS, DEFAULT_FORWARD_SPEED, discover_maps, make_single_env
+from Main import (
+    DEFAULT_FORWARD_SPEED,
+    DEFAULT_FRAME_REPEAT_PROB,
+    DEFAULT_HEADING_TYPE,
+    DEFAULT_MAX_EPISODE_STEPS,
+    DEFAULT_MOTION_BLUR_KERNEL_SIZE,
+    discover_maps,
+    make_single_env,
+)
 from multi_standalone import build_instances, stop_engine_container, terminate_process
+from action_wrappers import VALID_HEADING_TYPES
 
 
 DEFAULT_WORLD_PORT = 7501
@@ -90,7 +99,32 @@ def parse_args() -> argparse.Namespace:
         help="TimeLimit wrapper; use 0 to disable",
     )
     parser.add_argument("--learning-rate", type=float, default=5e-5, help="PPO learning rate")
+    parser.add_argument(
+        "--forward-speed",
+        type=float,
+        default=DEFAULT_FORWARD_SPEED,
+        help="global wheel-speed scale applied after heading-to-wheels mapping",
+    )
     parser.add_argument("--device", type=str, default="auto", help="torch device")
+    parser.add_argument(
+        "--heading-type",
+        type=str,
+        default=DEFAULT_HEADING_TYPE,
+        choices=VALID_HEADING_TYPES,
+        help="scalar steering-to-wheel mapping used by the environment",
+    )
+    parser.add_argument(
+        "--frame-repeat-prob",
+        type=float,
+        default=DEFAULT_FRAME_REPEAT_PROB,
+        help="probability of repeating the previous resized observation frame",
+    )
+    parser.add_argument(
+        "--motion-blur-kernel-size",
+        type=int,
+        default=DEFAULT_MOTION_BLUR_KERNEL_SIZE,
+        help="Duckietown-RL-style rotational blur strength after resize; use 0 to disable",
+    )
     parser.add_argument("--logdir", type=str, default="./runs_db21j_multi_engine", help="output directory")
     parser.add_argument(
         "--standalone-logdir",
@@ -191,6 +225,10 @@ def make_env_factory(
     respawn_backend: str,
     reward_kwargs: dict,
     respawn_kwargs: dict,
+    forward_speed: float,
+    heading_type: str,
+    frame_repeat_prob: float,
+    motion_blur_kernel_size: int,
 ):
     def _factory():
         return make_single_env(
@@ -203,8 +241,11 @@ def make_env_factory(
             reward_kwargs=reward_kwargs,
             obs_size=(80, 160),
             crop_top_ratio=0.33,
-            forward_speed=DEFAULT_FORWARD_SPEED,
+            forward_speed=forward_speed,
             max_steer=1.0,
+            heading_type=heading_type,
+            frame_repeat_prob=frame_repeat_prob,
+            motion_blur_kernel_size=motion_blur_kernel_size,
             engine_host=spec.host,
             engine_port=spec.world_port,
         )
@@ -221,6 +262,10 @@ def build_multi_vec_env(
     reward_kwargs: dict,
     respawn_kwargs: dict,
     start_method: str,
+    forward_speed: float,
+    heading_type: str,
+    frame_repeat_prob: float,
+    motion_blur_kernel_size: int,
 ):
     factories = [
         make_env_factory(
@@ -230,6 +275,10 @@ def build_multi_vec_env(
             respawn_backend=respawn_backend,
             reward_kwargs=reward_kwargs,
             respawn_kwargs=respawn_kwargs,
+            forward_speed=forward_speed,
+            heading_type=heading_type,
+            frame_repeat_prob=frame_repeat_prob,
+            motion_blur_kernel_size=motion_blur_kernel_size,
         )
         for spec in specs
     ]
@@ -352,6 +401,7 @@ def main() -> int:
     reward_kwargs = {
         "reward_mode": "posangle",
         "include_velocity_reward": True,
+        "dist_penalty_alpha": 0.5,
     }
 
     venv = build_multi_vec_env(
@@ -362,6 +412,10 @@ def main() -> int:
         reward_kwargs=reward_kwargs,
         respawn_kwargs=respawn_kwargs,
         start_method=args.start_method,
+        forward_speed=args.forward_speed,
+        heading_type=args.heading_type,
+        frame_repeat_prob=args.frame_repeat_prob,
+        motion_blur_kernel_size=args.motion_blur_kernel_size,
     )
 
     logger = configure(str(logdir), ["stdout", "csv", "tensorboard"])

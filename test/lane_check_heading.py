@@ -13,6 +13,7 @@ from duckiematrix_env import DuckiematrixDB21JEnv
 
 from action_wrappers import HeadingToWheelsWrapper
 import lane_utils as lu
+from Main import DEFAULT_HEADING_TYPE
 from map_interpreter_patch import use_patched_map_interpreter
 from respawn_wrapper import maybe_wrap_respawn
 from reward_wrappers import LaneFollowingRewardWrapper
@@ -20,6 +21,7 @@ from reward_wrappers import LaneFollowingRewardWrapper
 LANE_REWARD_KWARGS = {
     "reward_mode": "posangle",
     "include_velocity_reward": True,
+    "dist_penalty_alpha": 0.5,
 }
 
 RESPAWN_KWARGS = {
@@ -108,7 +110,12 @@ def main():
         respawn_kwargs=RESPAWN_KWARGS,
     )
     env = LaneFollowingRewardWrapper(env, **LANE_REWARD_KWARGS)
-    env = HeadingToWheelsWrapper(env, forward_speed=1.0, max_steer=1.0)
+    env = HeadingToWheelsWrapper(
+        env,
+        forward_speed=1.0,
+        max_steer=1.0,
+        heading_type=DEFAULT_HEADING_TYPE,
+    )
     env.reset()
 
     pygame.init()

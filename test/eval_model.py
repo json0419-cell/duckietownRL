@@ -18,8 +18,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from Main import DEFAULT_MAX_EPISODE_STEPS, build_vec_env, discover_maps, map_engine_arg
+from Main import DEFAULT_HEADING_TYPE, DEFAULT_MAX_EPISODE_STEPS, build_vec_env, discover_maps, map_engine_arg
 from start_stop_engine import start_engine, stop_engine
+from action_wrappers import VALID_HEADING_TYPES
 
 
 def parse_args():
@@ -47,6 +48,13 @@ def parse_args():
         default="fixed",
         choices=("random", "fixed"),
         help="evaluation respawn mode; fixed is easier for quick visual inspection",
+    )
+    parser.add_argument(
+        "--heading-type",
+        type=str,
+        default=DEFAULT_HEADING_TYPE,
+        choices=VALID_HEADING_TYPES,
+        help="scalar steering-to-wheel mapping used by the environment",
     )
     parser.add_argument("--engine-host", type=str, default="127.0.0.1", help="engine host")
     parser.add_argument("--engine-port", type=int, default=7501, help="engine DTPS port")
@@ -112,6 +120,7 @@ def main():
     reward_kwargs = {
         "reward_mode": "posangle",
         "include_velocity_reward": True,
+        "dist_penalty_alpha": 0.5,
     }
 
     engine_proc = None
@@ -174,6 +183,7 @@ def main():
             respawn_mode=args.respawn_mode,
             respawn_kwargs=respawn_kwargs,
             reward_kwargs=reward_kwargs,
+            heading_type=args.heading_type,
             engine_host=args.engine_host,
             engine_port=args.engine_port,
         )

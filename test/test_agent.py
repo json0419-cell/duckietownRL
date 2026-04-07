@@ -19,9 +19,10 @@ if PROJECT_ROOT not in sys.path:
 from duckiematrix_env import DuckiematrixDB21JEnv
 from reward_wrappers import LaneFollowingRewardWrapper
 from observation_wrappers import ResizeCropWrapper
-from action_wrappers import HeadingToWheelsWrapper
+from action_wrappers import HeadingToWheelsWrapper, VALID_HEADING_TYPES
 from respawn_wrapper import VALID_RESPAWN_MODES, maybe_wrap_respawn
 from map_interpreter_patch import use_patched_map_interpreter
+from Main import DEFAULT_HEADING_TYPE
 
 
 def make_single_env(
@@ -32,6 +33,7 @@ def make_single_env(
     crop_top_ratio=0.33,
     forward_speed: float = 1.0,
     max_steer: float = 1.0,
+    heading_type: str = DEFAULT_HEADING_TYPE,
 ):
     env = DuckiematrixDB21JEnv(
         entity_name="map_0/vehicle_0",
@@ -45,7 +47,12 @@ def make_single_env(
     env = LaneFollowingRewardWrapper(env, **reward_kwargs)
     out_h, out_w = obs_size
     env = ResizeCropWrapper(env, out_h=out_h, out_w=out_w, crop_top_ratio=crop_top_ratio)
-    env = HeadingToWheelsWrapper(env, forward_speed=forward_speed, max_steer=max_steer)
+    env = HeadingToWheelsWrapper(
+        env,
+        forward_speed=forward_speed,
+        max_steer=max_steer,
+        heading_type=heading_type,
+    )
     return env
 
 
@@ -55,6 +62,7 @@ def build_vec_env(
     respawn_mode: str,
     forward_speed: float,
     max_steer: float,
+    heading_type: str,
 ):
     def _factory():
         return make_single_env(
@@ -65,6 +73,7 @@ def build_vec_env(
             crop_top_ratio=0.33,
             forward_speed=forward_speed,
             max_steer=max_steer,
+            heading_type=heading_type,
         )
 
     venv = DummyVecEnv([_factory])
@@ -80,6 +89,13 @@ def parse_args():
     p.add_argument("--headless", action="store_true", help="run without rendering (recommended for speed)")
     p.add_argument("--forward_speed", type=float, default=1.0, help="heading wrapper forward speed")
     p.add_argument("--max_steer", type=float, default=1.0, help="heading wrapper max steer scale")
+    p.add_argument(
+        "--heading-type",
+        type=str,
+        default=DEFAULT_HEADING_TYPE,
+        choices=VALID_HEADING_TYPES,
+        help="scalar steering-to-wheel mapping used by the environment",
+    )
     p.add_argument(
         "--respawn-mode",
         type=str,
@@ -98,6 +114,7 @@ def main():
     reward_kwargs = {
         "reward_mode": "posangle",
         "include_velocity_reward": True,
+        "dist_penalty_alpha": 0.5,
     }
 
     venv = build_vec_env(
@@ -106,6 +123,7 @@ def main():
         respawn_mode=args.respawn_mode,
         forward_speed=args.forward_speed,
         max_steer=args.max_steer,
+        heading_type=args.heading_type,
     )
 
     model = PPO.load(args.model, env=venv)

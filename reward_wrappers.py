@@ -41,7 +41,7 @@ class LaneFollowingRewardWrapper(gym.Wrapper):
         target_angle_deg_at_edge: float = 45.0,
         orientation_scale: float = 0.5,
         velocity_reward_scale: float = 0.25,
-        dist_penalty_alpha: float = 0.8,
+        dist_penalty_alpha: float = 0.5,
         **legacy_kwargs,
     ):
         super().__init__(env)

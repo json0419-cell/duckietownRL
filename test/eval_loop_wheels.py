@@ -20,11 +20,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from Main import (  # noqa: E402
+    DEFAULT_HEADING_TYPE,
     DEFAULT_MAX_EPISODE_STEPS,
     build_vec_env,
     close_vec_env_gracefully,
     map_engine_arg,
 )
+from action_wrappers import VALID_HEADING_TYPES  # noqa: E402
 from dtps_shutdown_patch import apply_dtps_shutdown_patch  # noqa: E402
 from start_stop_engine import start_engine, stop_engine  # noqa: E402
 
@@ -54,6 +56,13 @@ def parse_args():
         default="fixed",
         choices=("random", "fixed"),
         help="evaluation respawn mode",
+    )
+    parser.add_argument(
+        "--heading-type",
+        type=str,
+        default=DEFAULT_HEADING_TYPE,
+        choices=VALID_HEADING_TYPES,
+        help="scalar steering-to-wheel mapping used by the environment",
     )
     parser.add_argument("--show-figure", action="store_true", help="show the local DB21J figure window")
     parser.add_argument("--engine-host", type=str, default="127.0.0.1", help="engine host")
@@ -150,6 +159,7 @@ def main():
     reward_kwargs = {
         "reward_mode": "posangle",
         "include_velocity_reward": True,
+        "dist_penalty_alpha": 0.5,
     }
 
     engine_proc = None
@@ -211,6 +221,7 @@ def main():
             respawn_mode=args.respawn_mode,
             respawn_kwargs=respawn_kwargs,
             reward_kwargs=reward_kwargs,
+            heading_type=args.heading_type,
         )
         wrapped_env = _unwrap_vec_env(venv)
         base_env = _unwrap_gym_env(wrapped_env)

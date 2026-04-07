@@ -20,6 +20,7 @@ SHOW_POSE = True
 LANE_REWARD_KWARGS = {
     "reward_mode": "posangle",
     "include_velocity_reward": True,
+    "dist_penalty_alpha": 0.5,
 }
 
 

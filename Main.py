@@ -17,11 +17,11 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import get_schedule_fn
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecTransposeImage
 
-from action_wrappers import HeadingToWheelsWrapper
+from action_wrappers import HeadingToWheelsWrapper, VALID_HEADING_TYPES
 from duckiematrix_env import DuckiematrixDB21JEnv
 from dtps_shutdown_patch import apply_dtps_shutdown_patch
 from map_interpreter_patch import use_patched_map_interpreter
-from observation_wrappers import ResizeCropWrapper
+from observation_wrappers import MotionBlurWrapper, RandomFrameRepeatingWrapper, ResizeCropWrapper
 from respawn_wrapper import VALID_RESPAWN_MODES, maybe_wrap_respawn
 from reward_wrappers import LaneFollowingRewardWrapper
 from start_stop_engine import start_engine, stop_engine
@@ -32,6 +32,10 @@ DEFAULT_SEGMENT_TIMESTEPS = 16_384
 DEFAULT_MAX_EPISODE_STEPS = 300
 DEFAULT_LEARNING_RATE = 5e-5
 DEFAULT_FORWARD_SPEED = 1.0
+DEFAULT_MAX_STEER = 1.0
+DEFAULT_HEADING_TYPE = "heading_smooth"
+DEFAULT_FRAME_REPEAT_PROB = 0.0
+DEFAULT_MOTION_BLUR_KERNEL_SIZE = 0
 VALID_RESPAWN_BACKENDS = ("engine", "wrapper", "hybrid")
 
 
@@ -120,7 +124,10 @@ def make_single_env(
     obs_size: tuple[int, int] = (80, 160),
     crop_top_ratio: float = 0.33,
     forward_speed: float = DEFAULT_FORWARD_SPEED,
-    max_steer: float = 1.0,
+    max_steer: float = DEFAULT_MAX_STEER,
+    heading_type: str = DEFAULT_HEADING_TYPE,
+    frame_repeat_prob: float = DEFAULT_FRAME_REPEAT_PROB,
+    motion_blur_kernel_size: int = DEFAULT_MOTION_BLUR_KERNEL_SIZE,
     engine_host: str | None = None,
     engine_port: int | None = None,
 ):
@@ -147,10 +154,15 @@ def make_single_env(
 
     out_h, out_w = obs_size
     env = ResizeCropWrapper(env, out_h=out_h, out_w=out_w, crop_top_ratio=crop_top_ratio)
+    if frame_repeat_prob > 0.0:
+        env = RandomFrameRepeatingWrapper(env, repeat_prob=frame_repeat_prob)
+    if motion_blur_kernel_size > 1:
+        env = MotionBlurWrapper(env, kernel_size=motion_blur_kernel_size)
     env = HeadingToWheelsWrapper(
         env,
         forward_speed=forward_speed,
         max_steer=max_steer,
+        heading_type=heading_type,
     )
     if max_episode_steps > 0:
         env = TimeLimit(env, max_episode_steps=max_episode_steps)
@@ -167,6 +179,10 @@ def build_vec_env(
     respawn_backend: str = "wrapper",
     respawn_kwargs: dict,
     reward_kwargs: dict,
+    forward_speed: float = DEFAULT_FORWARD_SPEED,
+    heading_type: str = DEFAULT_HEADING_TYPE,
+    frame_repeat_prob: float = DEFAULT_FRAME_REPEAT_PROB,
+    motion_blur_kernel_size: int = DEFAULT_MOTION_BLUR_KERNEL_SIZE,
     engine_host: str | None = None,
     engine_port: int | None = None,
 ):
@@ -181,8 +197,11 @@ def build_vec_env(
             reward_kwargs=reward_kwargs,
             obs_size=(80, 160),
             crop_top_ratio=0.33,
-            forward_speed=DEFAULT_FORWARD_SPEED,
-            max_steer=1.0,
+            forward_speed=forward_speed,
+            max_steer=DEFAULT_MAX_STEER,
+            heading_type=heading_type,
+            frame_repeat_prob=frame_repeat_prob,
+            motion_blur_kernel_size=motion_blur_kernel_size,
             engine_host=engine_host,
             engine_port=engine_port,
         )
@@ -307,7 +326,32 @@ def parse_args():
         default=DEFAULT_LEARNING_RATE,
         help="PPO learning rate; defaults to Duckietown-RL PPO lr",
     )
+    p.add_argument(
+        "--forward-speed",
+        type=float,
+        default=DEFAULT_FORWARD_SPEED,
+        help="global wheel-speed scale applied after heading-to-wheels mapping",
+    )
     p.add_argument("--max-episode-steps", type=int, default=DEFAULT_MAX_EPISODE_STEPS, help="TimeLimit wrapper")
+    p.add_argument(
+        "--heading-type",
+        type=str,
+        default=DEFAULT_HEADING_TYPE,
+        choices=VALID_HEADING_TYPES,
+        help="scalar steering-to-wheel mapping used by the environment",
+    )
+    p.add_argument(
+        "--frame-repeat-prob",
+        type=float,
+        default=DEFAULT_FRAME_REPEAT_PROB,
+        help="probability of reusing the previous resized observation instead of the new frame",
+    )
+    p.add_argument(
+        "--motion-blur-kernel-size",
+        type=int,
+        default=DEFAULT_MOTION_BLUR_KERNEL_SIZE,
+        help="Duckietown-RL-style rotational blur strength after resize; 0 disables blur",
+    )
     p.add_argument("--engine-host", type=str, default="127.0.0.1", help="engine host")
     p.add_argument("--engine-port", type=int, default=7501, help="engine DTPS port")
     p.add_argument("--engine-ready-timeout", type=float, default=40.0, help="wait engine readiness timeout")
@@ -384,6 +428,7 @@ def main():
     reward_kwargs = {
         "reward_mode": "posangle",
         "include_velocity_reward": True,
+        "dist_penalty_alpha": 0.5,
     }
 
     print(f"[INFO] discovered maps: {available_maps}")
@@ -467,6 +512,10 @@ def main():
                     respawn_mode=args.respawn_mode,
                     respawn_kwargs=respawn_kwargs,
                     reward_kwargs=reward_kwargs,
+                    forward_speed=args.forward_speed,
+                    heading_type=args.heading_type,
+                    frame_repeat_prob=args.frame_repeat_prob,
+                    motion_blur_kernel_size=args.motion_blur_kernel_size,
                     engine_host=args.engine_host,
                     engine_port=args.engine_port,
                 )

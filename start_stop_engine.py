@@ -108,6 +108,7 @@ def stop_engine(
     stop_renderer: bool,
     renderer_process_name: str,
 ) -> None:
+    proc_was_active = proc is not None and proc.poll() is None
     if proc is not None and proc.poll() is None:
         # Stop the launcher and its children as a process group when possible.
         try:
@@ -123,7 +124,11 @@ def stop_engine(
                 proc.kill()
             proc.wait(timeout=5)
     if stop_renderer:
-        stop_renderer_processes(renderer_process_name)
+        # When a launcher proc is active, the process-group kill above should
+        # already stop the matching renderer children. Only sweep globally when
+        # we do not have a live launcher proc to clean up from.
+        if not proc_was_active:
+            stop_renderer_processes(renderer_process_name)
         # Remove the optional viewer container if it was started manually.
         subprocess.run(
             ["docker", "rm", "-f", "my-viewer"],
@@ -143,10 +148,13 @@ def stop_engine(
 def build_engine_cmd(
     map_name: str,
     *,
+    container_name: str = "dts-matrix-engine",
+    port: int = 7501,
     no_pull: bool = True,
     engine_only: bool = False,
     graphics_api: str = "opengl",
 ) -> list[str]:
+    port_offset = int(port) - 7501
     if engine_only:
         cmd = ["dts", "matrix", "engine", "run", "--map", map_name]
     else:
@@ -155,6 +163,11 @@ def build_engine_cmd(
             cmd.append("--force-opengl")
         elif graphics_api == "vulkan":
             cmd.append("--force-vulkan")
+        cmd.extend(["--port", str(int(port))])
+
+    cmd.extend(["--engine-name", container_name])
+    if port_offset != 0:
+        cmd.extend(["--port-offset", str(port_offset)])
 
     if no_pull:
         cmd.append("--no-pull")
@@ -179,6 +192,8 @@ def start_engine(
 ) -> tuple[subprocess.Popen, list[str], str]:
     cmd = build_engine_cmd(
         map_name,
+        container_name=container_name,
+        port=port,
         no_pull=no_pull,
         engine_only=engine_only,
         graphics_api=graphics_api,
