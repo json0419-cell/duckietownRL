@@ -11,13 +11,13 @@ env/
 .env/
 pyvenv.cfg
 
-# Distribution / packaging
+# Build / packaging
 build/
 dist/
 *.egg-info/
 .eggs/
 
-# Test / coverage
+# Test / tooling caches
 .pytest_cache/
 .coverage
 htmlcov/
@@ -25,49 +25,47 @@ htmlcov/
 .ruff_cache/
 .cache/
 
-# Logs / runtime
+# Logs / temp files
 *.log
 *.tmp
 *.swp
+*.json.tmp
+
+# OS / editor
 .DS_Store
 Thumbs.db
-
-# IDEs
 .idea/
-.vscode/s
+.vscode/
 
-# Duckietown / sims (common artifacts)
+# Project-generated outputs
+debug/
+runs_*/
+export/
+
+# Model / artifact files
+*.onnx
+*.pt
+*.pth
+*.pkl
+*.pickle
+*.npy
+*.npz
+
+# Generated media
 *.mp4
 *.avi
 *.png
 *.jpg
 *.jpeg
 *.gif
-*.npy
-*.npz
-*.pkl
 
-basic_no_random_respawn_single_map
-dt-duckiematrix-image-src
-docker
-runs_db21j_ppo_old
-runs_db21j_loop_only_V1
-runs_db21j_loop_only_v2
-runs_db21j_ppo_4
-runs_db21j_loop_only
-runs_db21j_multi_engine
-runs_db21j_multi_engine_smoke
-test/control_point_curves
-test/loop_wheel_eval_v2_seg19_rerun
-test/optimal_reward_routes
-runs_db21j_multi_engine_rllib
-runs_db21j_multi_engine_rllib_smallloop_plus
-runs_db21j_multi_engine_rllib_loop_only
+# Local-only folders / scratch
+basic_no_random_respawn_single_map/
+dt-duckiematrix-image-src/
+docker/
 
-runs_db21j_multi_engine_rllib_multimap_3maps_final
-runs_db21j_multi_engine_rllib_v1_3worker_custom_technical_floor_no_dist_penalty
-runs_db21j_multi_engine_rllib_v2_3worker_custom_technical_floor_dist_penalty
-runs_db21j_multi_engine_rllib_v2_3worker_huge_V_floor_dist_penalty
-runs_db21j_multi_engine_rllib_v2_3worker_plus_floor_dist_penalty
-
-docker
+# Test-generated analysis artifacts
+test/control_point_curves/
+test/loop_wheel_eval_v2_seg19_rerun/
+test/optimal_reward_routes/
+/models

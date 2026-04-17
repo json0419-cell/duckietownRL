@@ -22,19 +22,23 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from dtps_shutdown_patch import apply_dtps_shutdown_patch
 from eval_rllib_model import build_env, resolve_policy_checkpoint
-from Main import (
+from core.env_builder import (
     DEFAULT_FORWARD_SPEED,
     DEFAULT_FRAME_REPEAT_PROB,
     DEFAULT_HEADING_TYPE,
+    DEFAULT_LANE_MASK_NOISE_STRENGTH,
     DEFAULT_MAX_EPISODE_STEPS,
+    DEFAULT_OBSERVATION_MODE,
+    DEFAULT_PHOTOMETRIC_AUG_STRENGTH,
+    DEFAULT_YELLOW_LANE_AUG_STRENGTH,
     DEFAULT_MOTION_BLUR_KERNEL_SIZE,
-    discover_maps,
-    map_engine_arg,
+    VALID_OBSERVATION_MODES,
 )
-from action_wrappers import VALID_HEADING_TYPES
-from start_stop_engine import start_engine, stop_engine
+from core.map_utils import discover_maps, map_engine_arg
+from runtime.dtps_shutdown_patch import apply_dtps_shutdown_patch
+from runtime.start_stop_engine import start_engine, stop_engine
+from wrappers.action_wrappers import VALID_HEADING_TYPES
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,6 +63,18 @@ def parse_args() -> argparse.Namespace:
         help="global wheel-speed scale applied after heading-to-wheels mapping",
     )
     parser.add_argument(
+        "--forward-speed-min",
+        type=float,
+        default=None,
+        help="minimum episode-level sampled forward speed; requires --forward-speed-max",
+    )
+    parser.add_argument(
+        "--forward-speed-max",
+        type=float,
+        default=None,
+        help="maximum episode-level sampled forward speed; requires --forward-speed-min",
+    )
+    parser.add_argument(
         "--heading-type",
         type=str,
         default=DEFAULT_HEADING_TYPE,
@@ -76,6 +92,31 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_MOTION_BLUR_KERNEL_SIZE,
         help="Duckietown-RL-style rotational blur strength after resize; use 0 to disable",
+    )
+    parser.add_argument(
+        "--photometric-aug-strength",
+        type=float,
+        default=DEFAULT_PHOTOMETRIC_AUG_STRENGTH,
+        help="episode-level photometric augmentation strength after resize; use 0 to disable",
+    )
+    parser.add_argument(
+        "--yellow-lane-aug-strength",
+        type=float,
+        default=DEFAULT_YELLOW_LANE_AUG_STRENGTH,
+        help="episode-level targeted weakening of the yellow center line after resize; use 0 to disable",
+    )
+    parser.add_argument(
+        "--observation-mode",
+        type=str,
+        default=DEFAULT_OBSERVATION_MODE,
+        choices=VALID_OBSERVATION_MODES,
+        help="observation representation used for evaluation",
+    )
+    parser.add_argument(
+        "--lane-mask-noise-strength",
+        type=float,
+        default=DEFAULT_LANE_MASK_NOISE_STRENGTH,
+        help="mask-noise strength after binary lane extraction; only used in binary_lane mode",
     )
     parser.add_argument("--show-figure", action="store_true", help="show the local matplotlib figure window from DB21JEnv")
     parser.add_argument(
@@ -195,16 +236,28 @@ def load_existing_results(summary_json: Path, summary: dict) -> dict[str, dict]:
         "respawn_mode",
         "respawn_backend",
         "forward_speed",
+        "forward_speed_min",
+        "forward_speed_max",
         "heading_type",
         "frame_repeat_prob",
         "motion_blur_kernel_size",
+        "photometric_aug_strength",
+        "yellow_lane_aug_strength",
+        "observation_mode",
+        "lane_mask_noise_strength",
         "episodes_per_checkpoint",
         "checkpoints_dir",
     )
     compatibility_defaults = {
         "forward_speed": float(DEFAULT_FORWARD_SPEED),
+        "forward_speed_min": None,
+        "forward_speed_max": None,
         "frame_repeat_prob": float(DEFAULT_FRAME_REPEAT_PROB),
         "motion_blur_kernel_size": int(DEFAULT_MOTION_BLUR_KERNEL_SIZE),
+        "photometric_aug_strength": float(DEFAULT_PHOTOMETRIC_AUG_STRENGTH),
+        "yellow_lane_aug_strength": float(DEFAULT_YELLOW_LANE_AUG_STRENGTH),
+        "observation_mode": DEFAULT_OBSERVATION_MODE,
+        "lane_mask_noise_strength": float(DEFAULT_LANE_MASK_NOISE_STRENGTH),
     }
     for key in required_keys:
         existing_value = existing.get(key, compatibility_defaults.get(key))
@@ -339,7 +392,8 @@ def main() -> int:
             graphics_api=args.graphics_api,
             env_overrides={
                 "DUCKIEMATRIX_RESPAWN_MODE": engine_respawn_mode,
-                "DUCKIEMATRIX_RESPAWN_MAX_SPAWN_ANGLE_DEG": "4.0",
+                "DUCKIEMATRIX_RESPAWN_YAW_JITTER_DEG": "8.0",
+                "DUCKIEMATRIX_RESPAWN_MAX_SPAWN_ANGLE_DEG": "8.0",
             },
             stdout=engine_log,
             stderr=subprocess.STDOUT,
@@ -352,9 +406,15 @@ def main() -> int:
             "respawn_mode": args.respawn_mode,
             "respawn_backend": args.respawn_backend,
             "forward_speed": float(args.forward_speed),
+            "forward_speed_min": args.forward_speed_min,
+            "forward_speed_max": args.forward_speed_max,
             "heading_type": args.heading_type,
             "frame_repeat_prob": float(args.frame_repeat_prob),
             "motion_blur_kernel_size": int(args.motion_blur_kernel_size),
+            "photometric_aug_strength": float(args.photometric_aug_strength),
+            "yellow_lane_aug_strength": float(args.yellow_lane_aug_strength),
+            "observation_mode": args.observation_mode,
+            "lane_mask_noise_strength": float(args.lane_mask_noise_strength),
             "episodes_per_checkpoint": int(args.episodes),
             "checkpoints_dir": str(checkpoints_dir),
             "engine_log": str(engine_log_path),

@@ -6,34 +6,38 @@ import subprocess
 import sys
 import time
 import urllib.request
-from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-
-import gymnasium as gym
-import numpy as np
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from Main import (
+from core.env_builder import (
     DEFAULT_FORWARD_SPEED,
     DEFAULT_FRAME_REPEAT_PROB,
     DEFAULT_HEADING_TYPE,
+    DEFAULT_LANE_MASK_NOISE_STRENGTH,
     DEFAULT_MAX_EPISODE_STEPS,
     DEFAULT_MOTION_BLUR_KERNEL_SIZE,
+    DEFAULT_OBSERVATION_MODE,
+    DEFAULT_PHOTOMETRIC_AUG_STRENGTH,
+    DEFAULT_YELLOW_LANE_AUG_STRENGTH,
     DEFAULT_MAX_STEER,
-    discover_maps,
+    VALID_OBSERVATION_MODES,
     make_single_env,
 )
-from multi_standalone import build_instances, stop_engine_container, terminate_process
-from action_wrappers import VALID_HEADING_TYPES
+from core.frame_stack import ChannelFrameStack
+from core.map_utils import discover_maps
+from runtime.multi_standalone import build_instances, stop_engine_container, terminate_process
+from wrappers.action_wrappers import VALID_HEADING_TYPES
+import gymnasium as gym
+import numpy as np
 
 
 DEFAULT_WORLD_PORT = 7501
 DEFAULT_OBS_SHAPE = (84, 84)
+DEFAULT_TRAIN_MAPS = "_custom_technical_floor,_huge_V_floor,_plus_floor"
 DEFAULT_MODEL_CONFIG = {
     # RLlib has no built-in CNN template for 84x84x9 (3 stacked RGB frames).
     # The old VisionNet uses SAME padding for all but the last Conv2D, so this
@@ -56,52 +60,6 @@ class InstanceSpec:
     world_port: int
     entity_name: str
 
-
-class ChannelFrameStack(gym.Wrapper):
-    def __init__(self, env: gym.Env, n_stack: int = 3):
-        super().__init__(env)
-        self.n_stack = max(1, int(n_stack))
-        self.frames = deque(maxlen=self.n_stack)
-
-        obs_space = env.observation_space
-        if not isinstance(obs_space, gym.spaces.Box):
-            raise TypeError("ChannelFrameStack expects a Box observation space")
-        if len(obs_space.shape) != 3:
-            raise ValueError(f"ChannelFrameStack expects HWC obs, got shape={obs_space.shape}")
-
-        h, w, c = obs_space.shape
-        self.observation_space = gym.spaces.Box(
-            low=0.0,
-            high=1.0,
-            shape=(h, w, c * self.n_stack),
-            dtype=np.float32,
-        )
-
-
-    @staticmethod
-    def _prepare_frame(obs) -> np.ndarray:
-        frame = np.asarray(obs, dtype=np.float32)
-        if frame.max() > 1.0:
-            frame = frame / 255.0
-        return frame
-
-    def _stacked_obs(self):
-        return np.concatenate(list(self.frames), axis=2)
-
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
-        obs = self._prepare_frame(obs)
-        self.frames.clear()
-        for _ in range(self.n_stack):
-            self.frames.append(obs.copy())
-        return self._stacked_obs(), info
-
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        self.frames.append(self._prepare_frame(obs).copy())
-        return self._stacked_obs(), reward, terminated, truncated, info
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -112,8 +70,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--maps",
         type=str,
-        default=None,
-        help="comma-separated map labels; default is all maps under --maps-dir",
+        default=DEFAULT_TRAIN_MAPS,
+        help="comma-separated map labels",
     )
     parser.add_argument("--maps-dir", type=str, default="./maps", help="directory containing local maps")
     parser.add_argument(
@@ -165,6 +123,18 @@ def parse_args() -> argparse.Namespace:
         help="global wheel-speed scale applied after heading-to-wheels mapping",
     )
     parser.add_argument(
+        "--forward-speed-min",
+        type=float,
+        default=None,
+        help="minimum episode-level sampled forward speed; requires --forward-speed-max",
+    )
+    parser.add_argument(
+        "--forward-speed-max",
+        type=float,
+        default=None,
+        help="maximum episode-level sampled forward speed; requires --forward-speed-min",
+    )
+    parser.add_argument(
         "--heading-type",
         type=str,
         default=DEFAULT_HEADING_TYPE,
@@ -182,6 +152,31 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_MOTION_BLUR_KERNEL_SIZE,
         help="Duckietown-RL-style rotational blur strength after resize; use 0 to disable",
+    )
+    parser.add_argument(
+        "--photometric-aug-strength",
+        type=float,
+        default=DEFAULT_PHOTOMETRIC_AUG_STRENGTH,
+        help="episode-level photometric augmentation strength after resize; use 0 to disable",
+    )
+    parser.add_argument(
+        "--yellow-lane-aug-strength",
+        type=float,
+        default=DEFAULT_YELLOW_LANE_AUG_STRENGTH,
+        help="episode-level targeted weakening of the yellow center line after resize; use 0 to disable",
+    )
+    parser.add_argument(
+        "--observation-mode",
+        type=str,
+        default=DEFAULT_OBSERVATION_MODE,
+        choices=VALID_OBSERVATION_MODES,
+        help="observation representation used for training",
+    )
+    parser.add_argument(
+        "--lane-mask-noise-strength",
+        type=float,
+        default=DEFAULT_LANE_MASK_NOISE_STRENGTH,
+        help="mask-noise strength after binary lane extraction; only used in binary_lane mode",
     )
     parser.add_argument("--logdir", type=str, default="./runs_db21j_multi_engine_rllib", help="output directory")
     parser.add_argument(
@@ -210,9 +205,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=0,
+        default=5,
         help=(
-            "number of remote rollout workers; 0 means one worker per requested map. "
+            "number of remote rollout workers. "
             "If larger than the map count, maps are repeated modulo-style."
         ),
     )
@@ -387,11 +382,23 @@ def make_rllib_env(env_config):
         obs_size=DEFAULT_OBS_SHAPE,
         crop_top_ratio=0.33,
         forward_speed=float(env_config.get("forward_speed", DEFAULT_FORWARD_SPEED)),
+        forward_speed_min=env_config.get("forward_speed_min"),
+        forward_speed_max=env_config.get("forward_speed_max"),
         max_steer=DEFAULT_MAX_STEER,
         heading_type=str(env_config.get("heading_type", DEFAULT_HEADING_TYPE)),
         frame_repeat_prob=float(env_config.get("frame_repeat_prob", DEFAULT_FRAME_REPEAT_PROB)),
         motion_blur_kernel_size=int(
             env_config.get("motion_blur_kernel_size", DEFAULT_MOTION_BLUR_KERNEL_SIZE)
+        ),
+        photometric_aug_strength=float(
+            env_config.get("photometric_aug_strength", DEFAULT_PHOTOMETRIC_AUG_STRENGTH)
+        ),
+        yellow_lane_aug_strength=float(
+            env_config.get("yellow_lane_aug_strength", DEFAULT_YELLOW_LANE_AUG_STRENGTH)
+        ),
+        observation_mode=str(env_config.get("observation_mode", DEFAULT_OBSERVATION_MODE)),
+        lane_mask_noise_strength=float(
+            env_config.get("lane_mask_noise_strength", DEFAULT_LANE_MASK_NOISE_STRENGTH)
         ),
         engine_host=spec["host"],
         engine_port=int(spec["world_port"]),
@@ -498,14 +505,15 @@ def main() -> int:
     launched_instances: list[tuple[object, subprocess.Popen, object]] = []
     respawn_kwargs = {
         "lateral_jitter": 0.02,
-        "yaw_jitter_deg": 0.0,
+        "yaw_jitter_deg": 8.0,
         "fallback_bbox": None,
         "avoid_junction": True,
-        "max_spawn_angle_deg": 4.0,
+        "max_spawn_angle_deg": 8.0,
     }
     engine_respawn_mode = args.respawn_mode if args.respawn_backend != "wrapper" else "fixed"
     engine_env_overrides = {
         "DUCKIEMATRIX_RESPAWN_MODE": engine_respawn_mode,
+        "DUCKIEMATRIX_RESPAWN_YAW_JITTER_DEG": str(respawn_kwargs["yaw_jitter_deg"]),
         "DUCKIEMATRIX_RESPAWN_MAX_SPAWN_ANGLE_DEG": str(respawn_kwargs["max_spawn_angle_deg"]),
     }
 
@@ -569,9 +577,15 @@ def main() -> int:
             "respawn_kwargs": respawn_kwargs,
             "reward_kwargs": reward_kwargs,
             "forward_speed": args.forward_speed,
+            "forward_speed_min": args.forward_speed_min,
+            "forward_speed_max": args.forward_speed_max,
             "heading_type": args.heading_type,
             "frame_repeat_prob": args.frame_repeat_prob,
             "motion_blur_kernel_size": args.motion_blur_kernel_size,
+            "photometric_aug_strength": args.photometric_aug_strength,
+            "yellow_lane_aug_strength": args.yellow_lane_aug_strength,
+            "observation_mode": args.observation_mode,
+            "lane_mask_noise_strength": args.lane_mask_noise_strength,
             "frame_stack": args.frame_stack,
             "has_local_env_runner": False,
         }
