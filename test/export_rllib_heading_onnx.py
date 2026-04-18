@@ -1,9 +1,16 @@
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import torch
 from ray.rllib.policy.policy import Policy
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from wrappers.action_wrappers import VALID_HEADING_TYPES
 
 
 DEFAULT_FRAME_STACK = 3
@@ -80,6 +87,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--heading-type",
         default=DEFAULT_HEADING_TYPE,
+        choices=VALID_HEADING_TYPES,
         help="Heading wrapper type expected at deployment.",
     )
     parser.add_argument(
@@ -119,6 +127,7 @@ def build_metadata(*, args: argparse.Namespace, checkpoint_dir: Path, policy: Po
         "heading_to_wheels": {
             "heading": "left=clip(1+heading,0,1), right=clip(1-heading,0,1)",
             "heading_smooth": "heading=(model_output**3)*max_steer; left=clip(1+heading,0,1); right=clip(1-heading,0,1)",
+            "heading_clipped_08": "heading=round(clip(model_output,-0.8,0.8),2); heading=round(clip(heading*max_steer,-0.8,0.8),2); left=clip(1+heading,0,1); right=clip(1-heading,0,1)",
         },
         "notes": [
             "Model output is the deterministic Gaussian mean used by policy.compute_single_action(explore=False).",

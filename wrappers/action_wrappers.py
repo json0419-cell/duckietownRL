@@ -2,7 +2,24 @@ import gymnasium as gym
 import numpy as np
 
 
-VALID_HEADING_TYPES = ("heading", "heading_smooth")
+HEADING_CLIPPED_08 = "heading_clipped_08"
+HEADING_CLIPPED_08_LIMIT = 0.8
+HEADING_CLIPPED_08_DECIMALS = 2
+VALID_HEADING_TYPES = ("heading", "heading_smooth", HEADING_CLIPPED_08)
+
+
+def apply_heading_mode(heading_value: float, *, heading_type: str, max_steer: float) -> float:
+    heading = float(np.clip(heading_value, -1.0, 1.0))
+    if heading_type == "heading_smooth":
+        heading = (heading ** 3) * max_steer
+    elif heading_type == HEADING_CLIPPED_08:
+        heading = float(np.clip(heading, -HEADING_CLIPPED_08_LIMIT, HEADING_CLIPPED_08_LIMIT))
+        heading = float(np.round(heading, HEADING_CLIPPED_08_DECIMALS))
+        heading = float(np.clip(heading * max_steer, -HEADING_CLIPPED_08_LIMIT, HEADING_CLIPPED_08_LIMIT))
+        heading = float(np.round(heading, HEADING_CLIPPED_08_DECIMALS))
+    else:
+        heading = heading * max_steer
+    return heading
 
 
 class ThrottleSteerToWheelsWrapper(gym.ActionWrapper):
@@ -58,11 +75,13 @@ class HeadingToWheelsWrapper(gym.ActionWrapper):
         if self.heading_type not in VALID_HEADING_TYPES:
             choices = ", ".join(VALID_HEADING_TYPES)
             raise ValueError(f"Unsupported heading_type '{self.heading_type}'. Expected one of: {choices}")
-        self.action_space = gym.spaces.Box(
-            low=np.array([-1.0], dtype=np.float32),
-            high=np.array([1.0], dtype=np.float32),
-            dtype=np.float32,
-        )
+        if self.heading_type == HEADING_CLIPPED_08:
+            low = np.array([-HEADING_CLIPPED_08_LIMIT], dtype=np.float32)
+            high = np.array([HEADING_CLIPPED_08_LIMIT], dtype=np.float32)
+        else:
+            low = np.array([-1.0], dtype=np.float32)
+            high = np.array([1.0], dtype=np.float32)
+        self.action_space = gym.spaces.Box(low=low, high=high, dtype=np.float32)
 
     def reset(self, **kwargs):
         if self.forward_speed_min is not None:
@@ -78,11 +97,11 @@ class HeadingToWheelsWrapper(gym.ActionWrapper):
         if heading_input.size == 0:
             raise ValueError("HeadingToWheelsWrapper received an empty action.")
 
-        heading = float(np.clip(heading_input[0], -1.0, 1.0))
-        if self.heading_type == "heading_smooth":
-            heading = (heading ** 3) * self.max_steer
-        else:
-            heading = heading * self.max_steer
+        heading = apply_heading_mode(
+            float(heading_input[0]),
+            heading_type=self.heading_type,
+            max_steer=self.max_steer,
+        )
 
         wheels = np.array([1.0 + heading, 1.0 - heading], dtype=np.float32)
         wheels = np.clip(wheels, 0.0, 1.0)
