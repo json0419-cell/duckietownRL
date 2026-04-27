@@ -52,7 +52,7 @@ export/
 *.npz
 
 # Generated media
-*.mp4
+
 *.avi
 *.png
 *.jpg
