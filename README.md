@@ -14,11 +14,15 @@ This repository is now centered on:
 
 The current recommended path is:
 
-- `heading`
+- `heading_clipped_08`
 - `binary_lane`
 - `84x84`
 - `3` stacked frames
 - RLlib PPO
+
+## Demo
+
+- [Open demo video](./demo.mp4)
 
 ## Current Status
 
@@ -85,8 +89,9 @@ The policy predicts a single scalar:
 
 This is mapped to wheel commands by [action_wrappers.py](/home/bcsi220/PycharmProjects/duckietownRL/wrappers/action_wrappers.py).
 
-Current recommended mapping:
+Current recommended mappings:
 
+- `heading_clipped_08`
 - `heading`
 
 Not recommended as the default path anymore:
@@ -115,19 +120,34 @@ The training scripts default to:
 - `respawn_mode=random`
 - `respawn_backend=engine`
 
-This repository currently assumes a locally patched Duckiematrix image for random respawn behavior. In the current local setup, the project is using:
+In the current codebase, actual random reset behavior comes from the Duckiematrix engine, not from a project-side respawn implementation:
+
+- [`DuckiematrixDB21JEnv.reset()`](/home/bcsi220/PycharmProjects/duckietownRL/core/duckiematrix_env.py:113) only sends `reset_flag` to the engine
+- training/eval scripts pass the respawn settings to Duckiematrix through env vars
+- [`respawn_wrapper.py`](/home/bcsi220/PycharmProjects/duckietownRL/wrappers/respawn_wrapper.py) can still validate/retry resets, but it is not the mechanism that generates random spawn poses in the current setup
+
+This repository currently assumes a locally patched Duckiematrix image for engine-side random respawn behavior. In the current local setup, the project is using:
 
 - `duckietown/dt-duckiematrix:ente-amd64`
 
-with small lane-relative random respawn yaw instead of the earlier large-angle setup.
+The current training/eval scripts request a smaller yaw jitter setup than the earlier large-angle experiments.
 
 Project-side defaults currently use:
 
 - `yaw_jitter_deg = 8.0`
 - `max_spawn_angle_deg = 8.0`
 
+Important:
+
+- these are the values the scripts request from the engine-side respawn implementation
+- actual reset behavior depends on the patched Duckiematrix image in use
+- the current repo does not provide a working project-side random respawn implementation independent of the engine
+- if exact lane-relative spawn angle matters, validate it from live reset samples instead of assuming the env vars are enforced exactly
+
 Relevant files:
 
+- [core/duckiematrix_env.py](/home/bcsi220/PycharmProjects/duckietownRL/core/duckiematrix_env.py)
+- [core/env_builder.py](/home/bcsi220/PycharmProjects/duckietownRL/core/env_builder.py)
 - [test/train_multi_engine_rllib.py](/home/bcsi220/PycharmProjects/duckietownRL/test/train_multi_engine_rllib.py)
 - [test/eval_rllib_model.py](/home/bcsi220/PycharmProjects/duckietownRL/test/eval_rllib_model.py)
 - [test/eval_rllib_checkpoints.py](/home/bcsi220/PycharmProjects/duckietownRL/test/eval_rllib_checkpoints.py)
@@ -136,9 +156,7 @@ Relevant files:
 ## Repository Layout
 
 - [maps](/home/bcsi220/PycharmProjects/duckietownRL/maps)
-  - training maps
-- [mymaps](/home/bcsi220/PycharmProjects/duckietownRL/mymaps)
-  - custom evaluation maps such as `curling`
+  - training maps and common evaluation maps such as `curling`
 - [observation_wrappers.py](/home/bcsi220/PycharmProjects/duckietownRL/wrappers/observation_wrappers.py)
   - crop/resize
   - photometric augmentation
@@ -173,7 +191,7 @@ python test/train_multi_engine_rllib.py \
   --motion-blur-kernel-size 3 \
   --observation-mode binary_lane \
   --lane-mask-noise-strength 0.3 \
-  --heading-type heading
+  --heading-type heading_clipped_08
 ```
 
 ### Binary lane with light photometric
@@ -188,7 +206,7 @@ python test/train_multi_engine_rllib.py \
   --photometric-aug-strength 0.5 \
   --observation-mode binary_lane \
   --lane-mask-noise-strength 0.3 \
-  --heading-type heading
+  --heading-type heading_clipped_08
 ```
 
 ### Resume training from a checkpoint
@@ -199,14 +217,14 @@ python test/train_multi_engine_rllib.py \
   --num-workers 5 \
   --logdir runs_db21j_multi_engine_rllib \
   --save-name rllib_db21j_multi_engine \
-  --load-checkpoint runs_db21j_multi_engine_rllib/checkpoints/rllib_db21j_multi_engine_651264 \
+  --load-checkpoint runs_db21j_multi_engine_rllib/checkpoints/rllib_db21j_multi_engine_655360 \
   --timesteps 1000000 \
   --forward-speed-min 0.5 \
   --forward-speed-max 0.8 \
   --motion-blur-kernel-size 3 \
   --observation-mode binary_lane \
   --lane-mask-noise-strength 0.3 \
-  --heading-type heading
+  --heading-type heading_clipped_08
 ```
 
 Notes:
@@ -221,15 +239,15 @@ Notes:
 
 ```bash
 python test/eval_rllib_model.py \
-  --checkpoint runs_db21j_multi_engine_rllib/checkpoints/rllib_db21j_multi_engine_best \
-  --maps-dir ./mymaps \
+  --checkpoint runs_db21j_multi_engine_rllib/checkpoints/rllib_db21j_multi_engine_655360 \
+  --maps-dir ./maps \
   --map curling \
   --episodes 18 \
   --respawn-mode fixed \
   --forward-speed 0.5 \
   --motion-blur-kernel-size 3 \
   --observation-mode binary_lane \
-  --heading-type heading
+  --heading-type heading_clipped_08
 ```
 
 ### Evaluate all checkpoints in one run directory
@@ -237,14 +255,14 @@ python test/eval_rllib_model.py \
 ```bash
 python test/eval_rllib_checkpoints.py \
   --checkpoints-dir runs_db21j_multi_engine_rllib/checkpoints \
-  --maps-dir ./mymaps \
+  --maps-dir ./maps \
   --map curling \
   --episodes 18 \
   --respawn-mode fixed \
   --forward-speed 0.5 \
   --motion-blur-kernel-size 3 \
   --observation-mode binary_lane \
-  --heading-type heading
+  --heading-type heading_clipped_08
 ```
 
 ## ONNX Export
@@ -253,9 +271,10 @@ Export one RLlib checkpoint:
 
 ```bash
 python test/export_rllib_heading_onnx.py \
-  --checkpoint runs_db21j_multi_engine_rllib/checkpoints/rllib_db21j_multi_engine_450560/policies/default_policy \
-  --output runs_db21j_multi_engine_rllib/export/rllib_db21j_multi_engine_450560_heading.onnx \
-  --forward-speed 0.5
+  --checkpoint runs_db21j_multi_engine_rllib/checkpoints/rllib_db21j_multi_engine_655360/policies/default_policy \
+  --output runs_db21j_multi_engine_rllib/export/rllib_db21j_multi_engine_655360_heading.onnx \
+  --forward-speed 0.5 \
+  --heading-type heading_clipped_08
 ```
 
 This writes:
@@ -305,7 +324,7 @@ The main local environment used here is:
 
 ## Known Caveats
 
-- `binary_lane` training performance in sim does not automatically guarantee better real recovery; still verify on the bot
+- `binary_lane` is workable on the real robot, but the lane mask usually needs to be adjusted for your own camera, lighting, and track conditions
 - if deploy preprocessing changes, ONNX behavior changes even if the checkpoint stays the same
-- local Duckiematrix image behavior matters for respawn; keep the image version and patch state explicit
+- random respawn currently depends on local Duckiematrix engine/image behavior; keep the image version and patch state explicit
 - model selection should not rely on one sim score only; compare both sim rollouts and real failure replays

@@ -128,6 +128,7 @@ def build_metadata(*, args: argparse.Namespace, checkpoint_dir: Path, policy: Po
             "heading": "left=clip(1+heading,0,1), right=clip(1-heading,0,1)",
             "heading_smooth": "heading=(model_output**3)*max_steer; left=clip(1+heading,0,1); right=clip(1-heading,0,1)",
             "heading_clipped_08": "heading=round(clip(model_output,-0.8,0.8),2); heading=round(clip(heading*max_steer,-0.8,0.8),2); left=clip(1+heading,0,1); right=clip(1-heading,0,1)",
+            "heading_clipped_06": "heading=round(clip(model_output,-0.6,0.6),2); heading=round(clip(heading*max_steer,-0.6,0.6),2); left=clip(1+heading,0,1); right=clip(1-heading,0,1)",
         },
         "notes": [
             "Model output is the deterministic Gaussian mean used by policy.compute_single_action(explore=False).",

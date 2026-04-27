@@ -3,20 +3,27 @@ import numpy as np
 
 
 HEADING_CLIPPED_08 = "heading_clipped_08"
+HEADING_CLIPPED_06 = "heading_clipped_06"
 HEADING_CLIPPED_08_LIMIT = 0.8
+HEADING_CLIPPED_06_LIMIT = 0.6
 HEADING_CLIPPED_08_DECIMALS = 2
-VALID_HEADING_TYPES = ("heading", "heading_smooth", HEADING_CLIPPED_08)
-
+HEADING_CLIPPED_06_DECIMALS = 2
+HEADING_CLIPPED_LIMITS = {
+    HEADING_CLIPPED_08: (HEADING_CLIPPED_08_LIMIT, HEADING_CLIPPED_08_DECIMALS),
+    HEADING_CLIPPED_06: (HEADING_CLIPPED_06_LIMIT, HEADING_CLIPPED_06_DECIMALS),
+}
+VALID_HEADING_TYPES = ("heading", "heading_smooth", HEADING_CLIPPED_08, HEADING_CLIPPED_06)
 
 def apply_heading_mode(heading_value: float, *, heading_type: str, max_steer: float) -> float:
     heading = float(np.clip(heading_value, -1.0, 1.0))
     if heading_type == "heading_smooth":
         heading = (heading ** 3) * max_steer
-    elif heading_type == HEADING_CLIPPED_08:
-        heading = float(np.clip(heading, -HEADING_CLIPPED_08_LIMIT, HEADING_CLIPPED_08_LIMIT))
-        heading = float(np.round(heading, HEADING_CLIPPED_08_DECIMALS))
-        heading = float(np.clip(heading * max_steer, -HEADING_CLIPPED_08_LIMIT, HEADING_CLIPPED_08_LIMIT))
-        heading = float(np.round(heading, HEADING_CLIPPED_08_DECIMALS))
+    elif heading_type in HEADING_CLIPPED_LIMITS:
+        limit, decimals = HEADING_CLIPPED_LIMITS[heading_type]
+        heading = float(np.clip(heading, -limit, limit))
+        heading = float(np.round(heading, decimals))
+        heading = float(np.clip(heading * max_steer, -limit, limit))
+        heading = float(np.round(heading, decimals))
     else:
         heading = heading * max_steer
     return heading
@@ -75,9 +82,10 @@ class HeadingToWheelsWrapper(gym.ActionWrapper):
         if self.heading_type not in VALID_HEADING_TYPES:
             choices = ", ".join(VALID_HEADING_TYPES)
             raise ValueError(f"Unsupported heading_type '{self.heading_type}'. Expected one of: {choices}")
-        if self.heading_type == HEADING_CLIPPED_08:
-            low = np.array([-HEADING_CLIPPED_08_LIMIT], dtype=np.float32)
-            high = np.array([HEADING_CLIPPED_08_LIMIT], dtype=np.float32)
+        if self.heading_type in HEADING_CLIPPED_LIMITS:
+            limit, _ = HEADING_CLIPPED_LIMITS[self.heading_type]
+            low = np.array([-limit], dtype=np.float32)
+            high = np.array([limit], dtype=np.float32)
         else:
             low = np.array([-1.0], dtype=np.float32)
             high = np.array([1.0], dtype=np.float32)
