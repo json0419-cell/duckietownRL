@@ -22,7 +22,7 @@ The current recommended path is:
 
 ## Demo
 
-- [Open demo video](./demo.mp4)
+![Demo GIF (full video)](./demo.gif)
 
 ## Current Status
 

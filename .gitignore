@@ -52,12 +52,13 @@ export/
 *.npz
 
 # Generated media
-
 *.avi
 *.png
 *.jpg
 *.jpeg
 *.gif
+!demo.gif
+
 
 # Local-only folders / scratch
 basic_no_random_respawn_single_map/
