@@ -22,7 +22,7 @@ The current recommended path is:
 
 ## Demo
 
-![Demo GIF (full video)](./demo.gif)
+![Demo GIF (full video)](./clip06.gif)
 
 ## Current Status
 
